@@ -15,7 +15,7 @@ room = "2.7.2"
 datastore = "1.1.7"
 work = "2.10.2"
 coil = "3.2.0"
-youtubedl = "0.17.4"
+youtubedl = "0.18.1"
 coreKtx = "1.16.0"
 appcompat = "1.7.1"
 

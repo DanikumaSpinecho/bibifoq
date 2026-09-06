@@ -103,8 +103,25 @@ téléchargeur, le déchiffrement HLS, et la conversion de la sortie JSON du mot
 
 Nécessite un JDK 21 et le SDK Android (`compileSdk` 36). `minSdk` est 26.
 
-Les APK font ~50 Mo : c'est le runtime Python et les binaires ffmpeg du moteur. Le build est donc
-découpé par ABI (`armeabi-v7a`, `arm64-v8a`, `x86_64`) plutôt que produire un APK universel.
+Les APK font ~85 Mo : c'est presque entièrement le moteur embarqué (ffmpeg 34 Mo, runtime Python
+14 Mo, QuickJS 1 Mo). Le build est donc découpé par ABI (`armeabi-v7a`, `arm64-v8a`, `x86_64`)
+plutôt que produire un APK universel.
+
+## Le moteur embarqué, et pourquoi sa version compte
+
+Le palier 2 embarque yt-dlp via `youtubedl-android`. La version figée dans l'APK vieillit vite :
+les sites changent, les extracteurs suivent. Un moteur périmé se manifeste par des erreurs qui
+ressemblent à des bugs de l'app — typiquement « please sign in » sur YouTube, qui est en réalité
+un contrôle anti-robot côté serveur que l'extracteur de l'époque ne sait plus franchir.
+
+Deux conséquences pratiques :
+
+- La dépendance est épinglée sur la version la plus récente disponible, et c'est une mise à jour
+  à refaire régulièrement. Aujourd'hui : `youtubedl-android` 0.18.1, qui embarque yt-dlp
+  **2025.11.12** et QuickJS, ce dernier servant à `yt_dlp_ejs` pour résoudre les signatures
+  JavaScript de YouTube.
+- **Réglages → « Update engine »** récupère la dernière version de yt-dlp à l'exécution, sans
+  réinstaller l'app. C'est le premier réflexe quand un site se met à échouer.
 
 ## YouTube
 

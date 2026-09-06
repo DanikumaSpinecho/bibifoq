@@ -8,6 +8,8 @@ import app.bibifoq.core.resolver.RemoteEngineOptions
 import app.bibifoq.core.resolver.ResolveError
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
+import java.io.File
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -44,6 +46,12 @@ class YtDlpEngine(
 
     @Volatile
     private var version: String? = null
+
+    /**
+     * Saved extractions live in the cache directory: they are an optimisation, and the system
+     * is welcome to reclaim them.
+     */
+    private val infoJsonDir: File by lazy { File(context.cacheDir, "engine-info") }
 
     override val isWarm: Boolean get() = initialised.get()
 
@@ -112,7 +120,11 @@ class YtDlpEngine(
                 val payload = response.out.trim()
                 if (payload.isEmpty()) throw ResolveError.EngineFailure("engine returned no data")
 
-                runCatching { YtDlpInfoMapper.parse(payload.firstJsonLine(), url) }
+                val document = payload.firstJsonLine()
+                // Keep the extraction so a download can replay it rather than repeating it.
+                saveInfoJson(url, document)
+
+                runCatching { YtDlpInfoMapper.parse(document, url) }
                     .getOrElse { failure ->
                         throw ResolveError.EngineFailure(
                             "could not read the engine's output: ${failure.message}",
@@ -171,6 +183,37 @@ class YtDlpEngine(
     }
 
     /**
+     * The saved extraction for [url], if there is a usable one.
+     *
+     * A download replays this instead of extracting the page a second time - see
+     * [app.bibifoq.download.EngineDownloader].
+     */
+    fun infoJsonFor(url: String): File? =
+        infoJsonFile(url).takeIf { it.isFile && it.length() > 0 }
+
+    private fun saveInfoJson(url: String, document: String) {
+        // Purely an optimisation: a failure here costs a re-extraction, nothing more.
+        runCatching {
+            infoJsonDir.mkdirs()
+            infoJsonFile(url).writeText(document)
+            val stale = infoJsonDir.listFiles()
+                ?.sortedByDescending { it.lastModified() }
+                ?.drop(MAX_SAVED_EXTRACTIONS)
+                .orEmpty()
+            stale.forEach { it.delete() }
+        }
+    }
+
+    private fun infoJsonFile(url: String) = File(infoJsonDir, "${hash(url)}.info.json")
+
+    /** URLs contain characters a filename cannot, so the key is hashed rather than escaped. */
+    private fun hash(url: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(url.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+            .take(32)
+
+    /**
      * `--dump-single-json` writes one JSON document, but a noisy extractor can print
      * additional lines around it. Take the first line that is actually a JSON object.
      */
@@ -181,5 +224,8 @@ class YtDlpEngine(
 
     private companion object {
         const val TAG = "YtDlpEngine"
+
+        /** Enough to cover a browsing session; each document can be several hundred KB. */
+        const val MAX_SAVED_EXTRACTIONS = 16
     }
 }
