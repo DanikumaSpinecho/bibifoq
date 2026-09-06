@@ -52,10 +52,25 @@ payé la latence du palier 1 en plus de la sienne.
 extracteur natif répond, puis un `Complete` quand la liste de formats est connue. La fiche est à
 l'écran pendant que le reste se décide.
 
+**L'énumération des résolutions à la demande.** Dès qu'un palier bon marché fournit un flux
+téléchargeable, la résolution s'arrête là et le signale (`moreFormatsAvailable`). Aller chercher
+la totalité de l'échelle de qualités coûte un démarrage d'interpréteur, et la plupart du temps le
+flux déjà trouvé était celui qu'on voulait — donc ce coût est *proposé*, pas dépensé : l'interface
+affiche « autres résolutions », et le palier 2 ne tourne que si vous le demandez
+(`ResolveMode.ALL_FORMATS`). Un manifeste HLS fait exception : il contient déjà toute l'échelle,
+donc il n'y a rien à proposer.
+
 S'y ajoutent : un cache disque qui survit au redémarrage du processus, une résolution spéculative
 déclenchée dès qu'un lien *apparaît* (partage, presse-papiers), la fusion des requêtes concurrentes
 sur une même URL, et un lecteur HTML qui **arrête de lire la réponse à `</head>`** — 50 à 100 fois
 moins d'octets sur une page de vidéo typique.
+
+**Le texte est décodé correctement.** Les titres passent par les attributs HTML, donc ils sont
+échappés — et un titre français échappe beaucoup : `&laquo;`, `&eacute;`, `&rsquo;`. Le décodage
+couvre tout le bloc Latin-1 plus la typographie usuelle, en **une seule passe** (décoder deux fois
+transforme un `&amp;#39;` volontaire en apostrophe qui n'existait pas). Et l'encodage de la page
+est déterminé avant décodage, en lisant les octets d'abord : beaucoup de sites ne déclarent leur
+charset que dans un `<meta>` situé à l'intérieur même de la zone lue.
 
 Les extracteurs natifs visent des **standards publiés** (oEmbed, schema.org, OpenGraph, HLS, DASH)
 et non du scraping site par site. Un seul extracteur couvre donc une longue traîne d'hôtes d'un

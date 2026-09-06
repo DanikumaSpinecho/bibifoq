@@ -223,6 +223,96 @@ class MediaResolverTest {
         assertEquals(requestsAfterFirst, server.requestCount)
     }
 
+    @Test
+    fun `stops at a usable native stream and offers the rest instead of fetching it`() = runBlocking {
+        // The whole point: a page that already hands us a playable stream should not pay for an
+        // interpreter start just to enumerate resolutions nobody asked for.
+        server.dispatch {
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "text/html").setBody(
+                """
+                <html><head>
+                  <meta property="og:title" content="Good enough">
+                  <meta property="og:video:secure_url" content="https://cdn.example.com/720.mp4">
+                </head></html>
+                """.trimIndent(),
+            )
+        }
+        val engine = FakeRemoteEngine(latency = 5.seconds)
+
+        val updates = resolver(engine).resolve(server.url("/watch/1").toString()).toList()
+
+        val complete = assertIs<ResolveUpdate.Complete>(updates.last())
+        assertEquals(Provenance.NATIVE, complete.winner)
+        assertEquals("https://cdn.example.com/720.mp4", complete.info.formats.single().url)
+        assertEquals(0, engine.callCount, "the expensive tier must not have run")
+        // ...but the user is told a fuller list exists, so the choice stays theirs.
+        assertTrue(complete.moreFormatsAvailable)
+    }
+
+    @Test
+    fun `asking for every format runs the engine even when the cheap tier could answer`() = runBlocking {
+        server.dispatch {
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "text/html").setBody(
+                """
+                <html><head>
+                  <meta property="og:title" content="Good enough">
+                  <meta property="og:video:secure_url" content="https://cdn.example.com/720.mp4">
+                </head></html>
+                """.trimIndent(),
+            )
+        }
+        val engine = FakeRemoteEngine()
+
+        val updates = resolver(engine)
+            .resolve(server.url("/watch/1").toString(), mode = ResolveMode.ALL_FORMATS)
+            .toList()
+
+        val complete = assertIs<ResolveUpdate.Complete>(updates.last())
+        assertEquals(Provenance.YTDLP, complete.winner)
+        assertEquals(2, complete.info.formats.size)
+        assertEquals(1, engine.callCount)
+        // Nothing more to offer once the engine has spoken.
+        assertTrue(!complete.moreFormatsAvailable)
+    }
+
+    @Test
+    fun `an authoritative native answer is not advertised as having more`() = runBlocking {
+        // A parsed HLS master already is the full ladder; offering to look again would be noise.
+        val master = """
+            #EXTM3U
+            #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=854x480,CODECS="avc1.4d401e,mp4a.40.2"
+            480.m3u8
+            #EXT-X-STREAM-INF:BANDWIDTH=2400000,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2"
+            720.m3u8
+        """.trimIndent()
+        server.dispatch {
+            MockResponse().setResponseCode(200)
+                .setHeader("Content-Type", "application/vnd.apple.mpegurl").setBody(master)
+        }
+
+        val updates = resolver(FakeRemoteEngine()).resolve(server.url("/m/master.m3u8").toString()).toList()
+
+        val complete = assertIs<ResolveUpdate.Complete>(updates.last())
+        assertTrue(!complete.moreFormatsAvailable)
+    }
+
+    @Test
+    fun `asking for every format goes past a cached answer`() = runBlocking {
+        server.dispatch { MockResponse().setResponseCode(404) }
+        val cache = InMemoryMetadataCache()
+        val url = server.url("/watch/9").toString()
+        val normalized = requireNotNull(UrlNormalizer.normalize(url))
+        cache.put(normalized, FakeRemoteEngine.defaultResponse(normalized))
+        val engine = FakeRemoteEngine()
+
+        val updates = resolver(engine, cache)
+            .resolve(url, mode = ResolveMode.ALL_FORMATS)
+            .toList()
+
+        assertIs<ResolveUpdate.Complete>(updates.last())
+        assertEquals(1, engine.callCount, "a cache hit must not satisfy an explicit full request")
+    }
+
     /** Answers every request with the same response, whatever the path. */
     private fun MockWebServer.dispatch(response: () -> MockResponse) {
         dispatcher = object : Dispatcher() {

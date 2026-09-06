@@ -26,12 +26,21 @@ sealed interface ResolveUpdate {
         val elapsed: Duration,
     ) : ResolveUpdate
 
-    /** The authoritative result. Terminal. */
+    /** The result this resolution is stopping at. Terminal. */
     data class Complete(
         val info: MediaInfo,
         val elapsed: Duration,
         /** Which tier produced the final answer, for the diagnostics panel. */
         val winner: Provenance,
+        /**
+         * True when a cheap tier answered and the general engine was never asked, so a fuller
+         * format list is still obtainable - at the cost of actually running it.
+         *
+         * This is what lets the UI offer "look for other resolutions" instead of spending that
+         * time on every single link, when most of the time the stream already found is the one
+         * the user wanted.
+         */
+        val moreFormatsAvailable: Boolean = false,
     ) : ResolveUpdate
 
     /** Terminal failure. Any [Partial] already emitted is still valid for display. */

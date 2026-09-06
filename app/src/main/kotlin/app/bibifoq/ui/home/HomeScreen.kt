@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -137,7 +139,10 @@ fun HomeScreen(
                     previewElapsed = state.previewElapsed,
                     completeElapsed = state.completeElapsed,
                     selectedFormat = state.selectedFormat,
+                    moreFormatsAvailable = state.moreFormatsAvailable,
+                    isLoadingMoreFormats = state.isLoadingMoreFormats,
                     onSelectFormat = viewModel::selectFormat,
+                    onFindMoreFormats = viewModel::findMoreFormats,
                     onOpenEntry = viewModel::resolve,
                 )
             }
@@ -216,7 +221,10 @@ private fun MediaCard(
     previewElapsed: Duration?,
     completeElapsed: Duration?,
     selectedFormat: MediaFormat?,
+    moreFormatsAvailable: Boolean,
+    isLoadingMoreFormats: Boolean,
     onSelectFormat: (MediaFormat) -> Unit,
+    onFindMoreFormats: () -> Unit,
     onOpenEntry: (String) -> Unit,
 ) {
     Card(Modifier.fillMaxWidth()) {
@@ -269,6 +277,31 @@ private fun MediaCard(
                     selected = selectedFormat,
                     onSelect = onSelectFormat,
                 )
+            }
+
+            // Offered rather than spent: enumerating every resolution costs an interpreter
+            // start, and the stream found cheaply is usually the one that was wanted.
+            if (isLoadingMoreFormats) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CircularProgressIndicator(Modifier.size(16.dp))
+                    Text(
+                        stringResource(R.string.searching_more_formats),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            } else if (moreFormatsAvailable) {
+                OutlinedButton(onClick = onFindMoreFormats) {
+                    Icon(
+                        Icons.Default.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.find_more_formats))
+                }
             }
 
             if (info.entries.isNotEmpty()) {

@@ -62,7 +62,11 @@ class MediaResolver(
 
     private val singleFlight = SingleFlight<String, MediaInfo>(backgroundScope)
 
-    fun resolve(rawUrl: String, options: RemoteEngineOptions = RemoteEngineOptions()): Flow<ResolveUpdate> =
+    fun resolve(
+        rawUrl: String,
+        options: RemoteEngineOptions = RemoteEngineOptions(),
+        mode: ResolveMode = ResolveMode.FAST,
+    ): Flow<ResolveUpdate> =
         channelFlow {
             val clock = TimeSource.Monotonic.markNow()
 
@@ -85,12 +89,16 @@ class MediaResolver(
             if (config.useCache) {
                 cache.get(UrlNormalizer.cacheKey(normalized))?.let { hit ->
                     val cached = hit.info.copy(provenance = Provenance.CACHE)
-                    if (cached.completeness == Completeness.COMPLETE) {
+                    // ALL_FORMATS exists precisely to go past what we already have, so it may
+                    // seed from the cache but must never stop there.
+                    if (mode == ResolveMode.FAST && cached.completeness == Completeness.COMPLETE) {
                         send(ResolveUpdate.Complete(cached, clock.elapsedNow(), Provenance.CACHE))
                         return@channelFlow
                     }
                     best = cached
-                    send(ResolveUpdate.Partial(cached, clock.elapsedNow()))
+                    if (mode == ResolveMode.FAST) {
+                        send(ResolveUpdate.Partial(cached, clock.elapsedNow()))
+                    }
                 }
             }
 
@@ -102,7 +110,10 @@ class MediaResolver(
             )
 
             // ---- Tier 2, started lazily so tier 1 can cancel it before it costs anything ----
-            val headStart = if (extractors.any { it.priority < AUTHORITATIVE_PRIORITY && it.canHandle(httpUrl) }) {
+            val headStart = if (mode == ResolveMode.ALL_FORMATS) {
+                // The user asked for the full ladder; holding the engine back only delays it.
+                Duration.ZERO
+            } else if (extractors.any { it.priority < AUTHORITATIVE_PRIORITY && it.canHandle(httpUrl) }) {
                 // Something claims this URL outright and will answer completely. Hold the
                 // expensive engine back long enough that it normally never starts.
                 config.authoritativeHeadStart
@@ -126,14 +137,33 @@ class MediaResolver(
             }
 
             // ---- Tier 1: native extractors -------------------------------------------------
-            val native = runCatchingCancellable { runNativeTier(context) }.getOrNull()
+            // With a cached preview already in hand there is nothing left for tier 1 to add on
+            // an explicit full-ladder request, so skip the request it would make.
+            val skipNative = mode == ResolveMode.ALL_FORMATS && best != null
+            val native = if (skipNative) {
+                null
+            } else {
+                runCatchingCancellable { runNativeTier(context) }.getOrNull()
+            }
+
             if (native != null) {
                 best = best?.mergedWith(native) ?: native
-                if (native.completeness == Completeness.COMPLETE) {
+                // A stream we can already fetch is enough to stop on. Enumerating the rest of
+                // the ladder costs an interpreter start, and most of the time nobody wanted it -
+                // so it is offered rather than spent, via moreFormatsAvailable below.
+                if (mode == ResolveMode.FAST && best!!.isDownloadable) {
                     remoteDeferred?.cancel()
                     val result = best!!
                     cache.putIfCaching(normalized, result)
-                    send(ResolveUpdate.Complete(result, clock.elapsedNow(), Provenance.NATIVE))
+                    send(
+                        ResolveUpdate.Complete(
+                            info = result,
+                            elapsed = clock.elapsedNow(),
+                            winner = Provenance.NATIVE,
+                            moreFormatsAvailable = remoteEngine != null &&
+                                result.completeness != Completeness.COMPLETE,
+                        ),
+                    )
                     return@channelFlow
                 }
                 send(ResolveUpdate.Partial(best!!, clock.elapsedNow()))
@@ -273,6 +303,23 @@ class MediaResolver(
          */
         const val AUTHORITATIVE_PRIORITY = 10
     }
+}
+
+/**
+ * How hard a resolution should work.
+ *
+ * The split exists because enumerating every resolution a site offers is the expensive part,
+ * and it is wasted whenever the stream found cheaply was already the one wanted.
+ */
+enum class ResolveMode {
+    /**
+     * Stop as soon as there is something downloadable. Reports
+     * [ResolveUpdate.Complete.moreFormatsAvailable] when a fuller list could still be fetched.
+     */
+    FAST,
+
+    /** Run the general engine and return the authoritative format list, whatever it costs. */
+    ALL_FORMATS,
 }
 
 /** Latency-shaping knobs for [MediaResolver]. */

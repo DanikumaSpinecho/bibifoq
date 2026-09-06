@@ -7,6 +7,7 @@ import app.bibifoq.core.model.FormatSelection
 import app.bibifoq.core.model.MediaFormat
 import app.bibifoq.core.model.MediaInfo
 import app.bibifoq.core.model.Provenance
+import app.bibifoq.core.resolver.ResolveMode
 import app.bibifoq.core.resolver.ResolveUpdate
 import kotlin.time.Duration
 import kotlinx.coroutines.Job
@@ -52,7 +53,6 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
 
     fun resolve(url: String = _state.value.url) {
         if (url.isBlank()) return
-        resolveJob?.cancel()
         _state.update {
             it.copy(
                 url = url,
@@ -62,11 +62,32 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
                 selectedFormat = null,
                 previewElapsed = null,
                 completeElapsed = null,
+                moreFormatsAvailable = false,
             )
         }
+        launchResolution(url, ResolveMode.FAST)
+    }
 
+    /**
+     * Goes and gets the full format ladder for the item already on screen.
+     *
+     * A normal resolve stops at the first usable stream, because enumerating every resolution
+     * costs an interpreter start and most of the time the cheap answer was the wanted one. This
+     * is the other half of that bargain: the cost is paid only when the user says the current
+     * option will not do.
+     */
+    fun findMoreFormats() {
+        val url = _state.value.url
+        if (url.isBlank() || _state.value.isLoadingMoreFormats) return
+        // The existing card stays on screen: this adds to what is shown, it does not replace it.
+        _state.update { it.copy(isLoadingMoreFormats = true, error = null) }
+        launchResolution(url, ResolveMode.ALL_FORMATS)
+    }
+
+    private fun launchResolution(url: String, mode: ResolveMode) {
+        resolveJob?.cancel()
         resolveJob = viewModelScope.launch {
-            services.resolver.resolve(url).collect { update ->
+            services.resolver.resolve(url, mode = mode).collect { update ->
                 when (update) {
                     is ResolveUpdate.Started -> Unit
 
@@ -85,12 +106,22 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
                             winner = update.winner,
                             completeElapsed = update.elapsed,
                             previewElapsed = it.previewElapsed ?: update.elapsed,
-                            selectedFormat = defaultFormat(update.info),
+                            // Keep the user's pick when the fuller list still contains it.
+                            selectedFormat = update.info.formats
+                                .firstOrNull { format -> format.id == it.selectedFormat?.id }
+                                ?: defaultFormat(update.info),
+                            moreFormatsAvailable = update.moreFormatsAvailable,
+                            isLoadingMoreFormats = false,
                         )
                     }
 
                     is ResolveUpdate.Failed -> _state.update {
-                        it.copy(phase = ResolvePhase.FAILED, error = update.error.message)
+                        // A failed search for more must not throw away what is already usable.
+                        if (mode == ResolveMode.ALL_FORMATS && it.info != null) {
+                            it.copy(isLoadingMoreFormats = false, error = update.error.message)
+                        } else {
+                            it.copy(phase = ResolvePhase.FAILED, error = update.error.message)
+                        }
                     }
                 }
             }
@@ -166,6 +197,9 @@ data class HomeUiState(
     /** Time to the authoritative format list. */
     val completeElapsed: Duration? = null,
     val lastEnqueuedTitle: String? = null,
+    /** A cheap tier answered; the full ladder is obtainable but has not been fetched. */
+    val moreFormatsAvailable: Boolean = false,
+    val isLoadingMoreFormats: Boolean = false,
 ) {
     val isComplete: Boolean get() = phase == ResolvePhase.COMPLETE
     val isBusy: Boolean get() = phase == ResolvePhase.RESOLVING || phase == ResolvePhase.PREVIEW

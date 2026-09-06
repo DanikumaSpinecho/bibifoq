@@ -42,28 +42,8 @@ internal object HtmlHead {
         )
     }
 
-    /**
-     * Resolves the numeric and named entities that actually show up in titles.
-     *
-     * Deliberately not exhaustive: the full HTML5 entity table is ~2000 entries and the rest
-     * are vanishingly rare in `og:title`.
-     */
-    fun decodeEntities(input: String): String {
-        if ('&' !in input) return input
-        var out = input
-        NAMED_ENTITIES.forEach { (entity, replacement) -> out = out.replace(entity, replacement) }
-        out = NUMERIC_ENTITY.replace(out) { match ->
-            val body = match.groupValues[1]
-            val code = if (body.startsWith("x") || body.startsWith("X")) {
-                body.drop(1).toIntOrNull(16)
-            } else {
-                body.toIntOrNull()
-            }
-            if (code != null && code in 1..0x10FFFF) String(Character.toChars(code)) else match.value
-        }
-        // Ampersand last, so "&amp;#39;" does not turn into an apostrophe.
-        return out.replace("&amp;", "&")
-    }
+    /** Resolves HTML character references. See [HtmlEntities] for why this is not trivial. */
+    fun decodeEntities(input: String): String = HtmlEntities.decode(input)
 
     private val META_TAG = Regex("""<meta\s+([^>]*?)/?>""", RegexOption.IGNORE_CASE)
     private val LINK_TAG = Regex("""<link\s+([^>]*?)/?>""", RegexOption.IGNORE_CASE)
@@ -71,13 +51,6 @@ internal object HtmlHead {
     private val JSON_LD = Regex(
         """<script[^>]+type\s*=\s*["']application/ld\+json["'][^>]*>(.*?)</script>""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
-    )
-    private val NUMERIC_ENTITY = Regex("""&#([xX]?[0-9a-fA-F]+);""")
-    private val NAMED_ENTITIES = listOf(
-        "&quot;" to "\"", "&apos;" to "'", "&lt;" to "<", "&gt;" to ">",
-        "&nbsp;" to " ", "&#039;" to "'", "&hellip;" to "…",
-        "&mdash;" to "—", "&ndash;" to "–", "&rsquo;" to "’",
-        "&lsquo;" to "‘", "&ldquo;" to "“", "&rdquo;" to "”",
     )
 }
 

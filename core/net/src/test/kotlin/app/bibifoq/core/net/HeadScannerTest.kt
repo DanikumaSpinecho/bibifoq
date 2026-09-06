@@ -95,6 +95,67 @@ class HeadScannerTest {
     }
 
     @Test
+    fun `honours a charset the page declares only in its own head`() = runBlocking {
+        // The server says nothing about encoding; the document does. Decoding as UTF-8 anyway
+        // is what turns every accent into mojibake.
+        val html = "<head><meta charset=\"ISO-8859-1\"><title>Café à Noël</title></head>"
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/html")
+                .setBody(okio.Buffer().write(html.toByteArray(Charsets.ISO_8859_1))),
+        )
+
+        val head = assertNotNull(HeadScanner.fetchHead(engine, server.url("/p").toString()))
+
+        assertTrue(head.html.contains("Café à Noël"), "was: ${head.html}")
+    }
+
+    @Test
+    fun `prefers the server's charset over the document's`() = runBlocking {
+        // A stale meta tag is common; the transport-level declaration is the authority.
+        val html = "<head><meta charset=\"ISO-8859-1\"><title>Café</title></head>"
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/html; charset=UTF-8")
+                .setBody(okio.Buffer().write(html.toByteArray(Charsets.UTF_8))),
+        )
+
+        val head = assertNotNull(HeadScanner.fetchHead(engine, server.url("/p").toString()))
+
+        assertTrue(head.html.contains("Café"), "was: ${head.html}")
+    }
+
+    @Test
+    fun `reads a content-type style charset declaration`() {
+        val html = """<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">"""
+        assertEquals(
+            java.nio.charset.Charset.forName("windows-1252"),
+            HeadScanner.sniffMetaCharset(html.toByteArray(Charsets.ISO_8859_1)),
+        )
+    }
+
+    @Test
+    fun `ignores a charset name that names no known encoding`() {
+        assertNull(HeadScanner.sniffMetaCharset("""<meta charset="utf-99">""".toByteArray()))
+        assertNull(HeadScanner.sniffMetaCharset("<head><title>x</title></head>".toByteArray()))
+    }
+
+    @Test
+    fun `strips a byte order mark instead of leaving it in the title`() = runBlocking {
+        val html = "<head><title>Café</title></head>"
+        val withBom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) +
+            html.toByteArray(Charsets.UTF_8)
+        server.enqueue(
+            MockResponse().setHeader("Content-Type", "text/html").setBody(okio.Buffer().write(withBom)),
+        )
+
+        val head = assertNotNull(HeadScanner.fetchHead(engine, server.url("/p").toString()))
+
+        assertTrue(head.html.startsWith("<head>"), "BOM leaked into the document: ${head.html.take(12)}")
+        assertTrue(head.html.contains("Café"))
+    }
+
+    @Test
     fun `reports the URL it ended up at after a redirect`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/final"))
         server.enqueue(MockResponse().setHeader("Content-Type", "text/html").setBody("<head><title>t</title></head>"))
