@@ -1,0 +1,80 @@
+name: Test build
+
+# Publishes installable APKs to a GitHub release, so a phone can download one
+# directly instead of unpacking a CI artifact zip.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag for the release (e.g. test-2026-09-06)"
+        required: false
+        default: ""
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Debug APKs on purpose: they are the variant the test suite and the local
+      # build actually exercised. A minified release build has not been run on a
+      # device yet, and a first field test should not also be the first run of R8
+      # output.
+      - name: Assemble debug APKs
+        run: ./gradlew :app:assembleDebug
+
+      - name: Name the release
+        id: name
+        run: |
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag="test-$(date -u +%Y%m%d-%H%M)"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release with the APKs attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.name.outputs.tag }}" \
+            app/build/outputs/apk/debug/*.apk \
+            --title "Test build ${{ steps.name.outputs.tag }}" \
+            --prerelease \
+            --notes "$(cat <<'NOTES'
+          Debug build for on-device testing. Not signed for distribution.
+
+          **Which file:** almost every phone made since ~2015 needs
+          `app-arm64-v8a-debug.apk`. Use `app-armeabi-v7a-debug.apk` only for an
+          older 32-bit device.
+
+          To install, allow installation from unknown sources for your browser,
+          then open the downloaded file. Requires Android 8.0 or newer.
+
+          The first launch unpacks the extraction engine's Python runtime, so it
+          is slower than every launch after it.
+          NOTES
+          )"
+
+      - name: Report the URL
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "### Test build published" >> "$GITHUB_STEP_SUMMARY"
+          gh release view "${{ steps.name.outputs.tag }}" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
