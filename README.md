@@ -103,9 +103,13 @@ téléchargeur, le déchiffrement HLS, et la conversion de la sortie JSON du mot
 
 Nécessite un JDK 21 et le SDK Android (`compileSdk` 36). `minSdk` est 26.
 
-Les APK font ~85 Mo : c'est presque entièrement le moteur embarqué (ffmpeg 34 Mo, runtime Python
-14 Mo, QuickJS 1 Mo). Le build est donc découpé par ABI (`armeabi-v7a`, `arm64-v8a`, `x86_64`)
-plutôt que produire un APK universel.
+Les APK font ~72 Mio en arm64 (66 Mio en armeabi-v7a). C'est presque entièrement le moteur
+embarqué : ffmpeg, le runtime Python et QuickJS pèsent ensemble ~49 Mio décompressés. Le build est
+donc découpé par ABI (`armeabi-v7a`, `arm64-v8a`, `x86_64`) plutôt que produire un APK universel.
+
+Mesurez toujours sur un `./gradlew clean assembleDebug` : un build incrémental qui a changé de
+version de moteur conserve les anciennes bibliothèques natives dans `merged_native_libs` et gonfle
+l'APK de plus de 10 Mio.
 
 ## Le moteur embarqué, et pourquoi sa version compte
 
