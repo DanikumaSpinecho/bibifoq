@@ -3,6 +3,7 @@ package app.bibifoq.download
 import android.content.Context
 import android.os.Environment
 import android.util.Log
+import androidx.core.net.toUri
 import app.bibifoq.core.downloader.DownloadConfig
 import app.bibifoq.core.downloader.DownloadProgress
 import app.bibifoq.core.downloader.DownloadSpec
@@ -27,6 +28,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * Owns the download queue: what to fetch, with which engine, and what the database should say
@@ -50,6 +53,19 @@ class DownloadCoordinator(
 
     private val jobs = ConcurrentHashMap<String, Job>()
     private val activeCount = MutableStateFlow(0)
+
+    /**
+     * Caps how many downloads actually move bytes at once.
+     *
+     * Each download already opens several connections of its own, so letting an unbounded
+     * number run turns a queue into a self-inflicted denial of service - on the phone's radio
+     * and on the host.
+     */
+    @Volatile
+    private var slots = Semaphore(SettingsStore.DEFAULT_CONCURRENT)
+
+    @Volatile
+    private var slotCount = SettingsStore.DEFAULT_CONCURRENT
 
     /** How many downloads are running, so the foreground service knows when to stop. */
     val active: Flow<Int> = activeCount.asStateFlow()
@@ -93,10 +109,24 @@ class DownloadCoordinator(
             ),
         )
 
+        // Resize the gate when the preference changed; queued work waits on the new one.
+        if (preferences.concurrentDownloads != slotCount) {
+            slotCount = preferences.concurrentDownloads
+            slots = Semaphore(preferences.concurrentDownloads)
+        }
+
         val job = scope.launch {
             activeCount.value += 1
             try {
-                run(id, info, selection, destination, config.copy(maxConnections = preferences.maxConnections))
+                slots.withPermit {
+                    run(
+                        id,
+                        info,
+                        selection,
+                        destination,
+                        config.copy(maxConnections = preferences.maxConnections),
+                    )
+                }
             } finally {
                 activeCount.value -= 1
                 jobs.remove(id)
@@ -120,17 +150,34 @@ class DownloadCoordinator(
         }
     }
 
-    suspend fun remove(id: String) {
+    /**
+     * Removes a download.
+     *
+     * @param deleteFile also erase the media itself, including the copy published to shared
+     *   storage. That published copy is the one the user sees in their gallery, so deleting
+     *   only the app-private file would look like the delete did nothing.
+     */
+    suspend fun remove(id: String, deleteFile: Boolean = true) {
         jobs.remove(id)?.cancel()
-        dao.byId(id)?.let { record ->
+        val record = dao.byId(id)
+        if (deleteFile && record != null) {
             runCatching {
                 File(record.filePath).delete()
+                // Partial state is never worth keeping once the entry is gone.
                 File(record.filePath + ".part").delete()
                 File(record.filePath + ".resume").delete()
+            }
+            record.mediaStoreUri?.let { uri ->
+                runCatching { context.contentResolver.delete(uri.toUri(), null, null) }
+                    .onFailure { Log.w(TAG, "could not delete the published copy", it) }
             }
         }
         dao.delete(id)
     }
+
+    /** True when the finished file is still where we left it. */
+    suspend fun fileExists(id: String): Boolean =
+        dao.byId(id)?.let { File(it.filePath).exists() } ?: false
 
     suspend fun clearFinished() = dao.clearFinished()
 
@@ -163,8 +210,10 @@ class DownloadCoordinator(
                         id, DownloadState.COMPLETED, update.totalBytes, update.totalBytes, null, now(),
                     )
                     val extension = (selection.video ?: selection.audio)?.container
-                    MediaStorePublisher(context)
+                    val published = MediaStorePublisher(context)
                         .publish(update.file, MediaStorePublisher.mimeTypeFor(extension))
+                    // Remember where it landed; without this the visible copy cannot be removed.
+                    dao.setMediaStoreUri(id, published?.toString())
                 }
 
                 is DownloadProgress.Failed -> {

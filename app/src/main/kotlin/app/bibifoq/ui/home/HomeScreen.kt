@@ -122,6 +122,8 @@ fun HomeScreen(
             }
 
             when {
+                state.phase == ResolvePhase.IDLE && state.url.isBlank() -> HomeEmptyState()
+
                 state.phase == ResolvePhase.RESOLVING -> ResolvingRow()
 
                 state.error != null -> Card(Modifier.fillMaxWidth()) {
@@ -184,7 +186,7 @@ private fun DownloadBar(
                 Text(
                     text = selectedFormat
                         ?.let { stringResource(R.string.selected_format, it.label()) }
-                        ?: stringResource(R.string.best_video),
+                        ?: stringResource(R.string.settings_quality_best),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -199,6 +201,32 @@ private fun DownloadBar(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HomeEmptyState() {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            Icons.Default.ContentPaste,
+            contentDescription = null,
+            modifier = Modifier.size(44.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            stringResource(R.string.home_empty_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            stringResource(R.string.home_empty_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
     }
 }
 

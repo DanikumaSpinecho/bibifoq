@@ -3,6 +3,8 @@ package app.bibifoq.engine
 import android.content.Context
 import android.util.Log
 import app.bibifoq.core.model.MediaInfo
+import app.bibifoq.core.net.FileCookieStore
+import app.bibifoq.data.EngineChannel
 import app.bibifoq.core.resolver.RemoteEngine
 import app.bibifoq.core.resolver.RemoteEngineOptions
 import app.bibifoq.core.resolver.ResolveError
@@ -39,6 +41,7 @@ import kotlin.coroutines.coroutineContext
  */
 class YtDlpEngine(
     private val context: Context,
+    private val cookies: FileCookieStore? = null,
 ) : RemoteEngine {
 
     private val initialised = AtomicBoolean(false)
@@ -153,6 +156,10 @@ class YtDlpEngine(
             addOption("--ignore-config")
             addOption("--socket-timeout", options.socketTimeoutSeconds.toString())
 
+            // Sites that gate video behind a login need the session here too, not only at
+            // download time - without it extraction fails before a format list even exists.
+            cookies?.fileOrNull()?.let { file -> addOption("--cookies", file.absolutePath) }
+
             if (options.noPlaylist) addOption("--no-playlist")
             if (options.flatPlaylist) {
                 // Without this, pasting a channel resolves every video in it before showing
@@ -171,11 +178,20 @@ class YtDlpEngine(
             }
         }
 
-    /** Refreshes the bundled extractor code, which is what keeps sites working over time. */
-    suspend fun update(): String = withContext(Dispatchers.IO) {
+    /**
+     * Refreshes the bundled extractor code, which is what keeps sites working over time.
+     *
+     * The version frozen into the APK ages badly - sites change, extractors follow - so this is
+     * the difference between an app that keeps working and one that slowly stops.
+     */
+    suspend fun update(channel: EngineChannel = EngineChannel.STABLE): String = withContext(Dispatchers.IO) {
         ensureInitialised()
-        val status = YoutubeDL.getInstance()
-            .updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)
+        val target = when (channel) {
+            EngineChannel.STABLE -> YoutubeDL.UpdateChannel.STABLE
+            EngineChannel.NIGHTLY -> YoutubeDL.UpdateChannel.NIGHTLY
+            EngineChannel.MASTER -> YoutubeDL.UpdateChannel.MASTER
+        }
+        val status = YoutubeDL.getInstance().updateYoutubeDL(context, target)
         version = runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
         // A null status means the library could not tell us what happened, which is not
         // the same as a failure - report it as unknown rather than inventing a result.

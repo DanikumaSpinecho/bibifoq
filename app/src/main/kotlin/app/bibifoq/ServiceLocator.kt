@@ -2,6 +2,7 @@ package app.bibifoq
 
 import android.content.Context
 import androidx.room.Room
+import app.bibifoq.core.net.FileCookieStore
 import app.bibifoq.core.net.HttpEngine
 import app.bibifoq.core.resolver.MediaResolver
 import app.bibifoq.core.resolver.NativeExtractor
@@ -34,12 +35,26 @@ class ServiceLocator(context: Context) {
     /** Outlives any screen: prefetches and downloads must survive navigation. */
     val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val httpEngine: HttpEngine by lazy { HttpEngine() }
+    /**
+     * Sessions for sites that will not serve video to a signed-out visitor.
+     *
+     * Deliberately one store for the whole app: the same file backs the HTTP client's cookie
+     * jar and the engine's `--cookies`, so signing in once works on both paths.
+     */
+    val cookies: FileCookieStore by lazy {
+        FileCookieStore(File(appContext.filesDir, "cookies/cookies.txt"))
+    }
+
+    val httpEngine: HttpEngine by lazy {
+        HttpEngine(HttpEngine.defaultClient(cookieJar = cookies))
+    }
 
     val settings: SettingsStore by lazy { SettingsStore(appContext) }
 
     val database: BibifoqDatabase by lazy {
         Room.databaseBuilder(appContext, BibifoqDatabase::class.java, "bibifoq.db")
+            .addMigrations(BibifoqDatabase.MIGRATION_1_2)
+            // Only as a last resort, if a future schema arrives without a migration.
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }
@@ -48,7 +63,7 @@ class ServiceLocator(context: Context) {
         DiskMetadataCache(File(appContext.filesDir, "metadata-cache"))
     }
 
-    val ytDlpEngine: YtDlpEngine by lazy { YtDlpEngine(appContext) }
+    val ytDlpEngine: YtDlpEngine by lazy { YtDlpEngine(appContext, cookies) }
 
     private val extractors: List<NativeExtractor> by lazy {
         listOf(
@@ -76,7 +91,7 @@ class ServiceLocator(context: Context) {
             dao = database.downloads(),
             settings = settings,
             scope = applicationScope,
-            engineDownloader = EngineDownloader(ytDlpEngine),
+            engineDownloader = EngineDownloader(ytDlpEngine, cookies),
         )
     }
 }

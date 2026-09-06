@@ -53,12 +53,17 @@ extracteur natif répond, puis un `Complete` quand la liste de formats est connu
 l'écran pendant que le reste se décide.
 
 **L'énumération des résolutions à la demande.** Dès qu'un palier bon marché fournit un flux
-téléchargeable, la résolution s'arrête là et le signale (`moreFormatsAvailable`). Aller chercher
-la totalité de l'échelle de qualités coûte un démarrage d'interpréteur, et la plupart du temps le
-flux déjà trouvé était celui qu'on voulait — donc ce coût est *proposé*, pas dépensé : l'interface
-affiche « autres résolutions », et le palier 2 ne tourne que si vous le demandez
-(`ResolveMode.ALL_FORMATS`). Un manifeste HLS fait exception : il contient déjà toute l'échelle,
-donc il n'y a rien à proposer.
+téléchargeable *et assez bon*, la résolution s'arrête là et le signale (`moreFormatsAvailable`).
+Aller chercher toute l'échelle de qualités coûte un démarrage d'interpréteur, donc ce coût est
+*proposé*, pas dépensé : l'interface affiche « autres résolutions », et le palier 2 ne tourne que
+si vous le demandez (`ResolveMode.ALL_FORMATS`).
+
+« Assez bon » n'est pas « téléchargeable ». Les pages annoncent couramment un flux de repli en
+360p dans `og:video` — il est là pour les aperçus sociaux, pas pour être regardé — donc s'arrêter
+au premier flux jouable livre du 360p à quelqu'un qui regardait du 720p. Le palier natif ne coupe
+court que si sa meilleure hauteur atteint la cible (celle réglée dans l'app, sinon 720p), et une
+hauteur inconnue compte comme insuffisante. Un manifeste HLS fait exception dans l'autre sens : il
+contient déjà toute l'échelle, donc il n'y a rien à proposer.
 
 S'y ajoutent : un cache disque qui survit au redémarrage du processus, une résolution spéculative
 déclenchée dès qu'un lien *apparaît* (partage, presse-papiers), la fusion des requêtes concurrentes
@@ -125,6 +130,17 @@ donc découpé par ABI (`armeabi-v7a`, `arm64-v8a`, `x86_64`) plutôt que produi
 Mesurez toujours sur un `./gradlew clean assembleDebug` : un build incrémental qui a changé de
 version de moteur conserve les anciennes bibliothèques natives dans `merged_native_libs` et gonfle
 l'APK de plus de 10 Mio.
+
+## Les sites qui exigent une session
+
+Certains sites ne servent aucune vidéo à un visiteur déconnecté. **Réglages → sites connectés →
+se connecter à un site** ouvre un navigateur dans l'app : vous vous connectez normalement, et la
+session est conservée.
+
+Un seul fichier `cookies.txt` au format Netscape sert de point de rencontre, et c'est tout
+l'intérêt : le client HTTP de l'app le lit comme *cookie jar*, et le moteur le reçoit via
+`--cookies`. Se connecter une fois vaut donc pour le chemin natif **et** pour le chemin moteur,
+au lieu d'un seul des deux.
 
 ## Le moteur embarqué, et pourquoi sa version compte
 

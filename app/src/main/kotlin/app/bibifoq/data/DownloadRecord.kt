@@ -8,6 +8,9 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -30,6 +33,13 @@ data class DownloadRecord(
     val errorMessage: String?,
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
+    /**
+     * Where the finished file was published in shared storage.
+     *
+     * Kept because the app-storage copy is not the one the user sees in their gallery, so
+     * deleting a download without this leaves the visible copy behind.
+     */
+    val mediaStoreUri: String? = null,
 ) {
     val fraction: Float?
         get() = totalBytes?.takeIf { it > 0 }?.let { (downloadedBytes.toFloat() / it).coerceIn(0f, 1f) }
@@ -65,6 +75,9 @@ interface DownloadDao {
         now: Long,
     )
 
+    @Query("UPDATE downloads SET mediaStoreUri = :uri WHERE id = :id")
+    suspend fun setMediaStoreUri(id: String, uri: String?)
+
     @Query("DELETE FROM downloads WHERE id = :id")
     suspend fun delete(id: String)
 
@@ -79,7 +92,21 @@ interface DownloadDao {
     suspend fun markInterrupted(reason: String)
 }
 
-@Database(entities = [DownloadRecord::class], version = 1, exportSchema = true)
+@Database(entities = [DownloadRecord::class], version = 2, exportSchema = true)
 abstract class BibifoqDatabase : RoomDatabase() {
     abstract fun downloads(): DownloadDao
+
+    companion object {
+        /**
+         * Adds the shared-storage URI.
+         *
+         * Written out rather than left to destructive fallback: wiping someone's download
+         * history to add a column is not a trade worth making.
+         */
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE downloads ADD COLUMN mediaStoreUri TEXT")
+            }
+        }
+    }
 }

@@ -87,7 +87,11 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
     private fun launchResolution(url: String, mode: ResolveMode) {
         resolveJob?.cancel()
         resolveJob = viewModelScope.launch {
-            services.resolver.resolve(url, mode = mode).collect { update ->
+            // Someone who capped quality at 480p is satisfied by a 480p stream; someone who did
+            // not is not satisfied by a 360p fallback. Same knob, both directions.
+            val desiredHeight = services.settings.settings.first().maxHeight
+            services.resolver.resolve(url, mode = mode, desiredHeight = desiredHeight)
+                .collect { update ->
                 when (update) {
                     is ResolveUpdate.Started -> Unit
 

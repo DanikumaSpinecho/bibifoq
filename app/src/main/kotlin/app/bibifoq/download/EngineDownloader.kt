@@ -3,6 +3,7 @@ package app.bibifoq.download
 import app.bibifoq.core.downloader.DownloadProgress
 import app.bibifoq.core.model.FormatSelection
 import app.bibifoq.core.model.MediaInfo
+import app.bibifoq.core.net.FileCookieStore
 import app.bibifoq.engine.YtDlpEngine
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -40,6 +41,7 @@ import kotlin.coroutines.coroutineContext
  */
 class EngineDownloader(
     private val engine: YtDlpEngine,
+    private val cookies: FileCookieStore? = null,
 ) {
 
     fun download(
@@ -171,7 +173,14 @@ class EngineDownloader(
         savedInfo: File?,
         webpageUrl: String?,
     ): YoutubeDLRequest =
-        EngineCommand.build(formatSpec, destination, container, savedInfo, webpageUrl)
+        EngineCommand.build(
+            formatSpec = formatSpec,
+            destination = destination,
+            container = container,
+            savedInfo = savedInfo,
+            webpageUrl = webpageUrl,
+            cookiesFile = cookies?.fileOrNull(),
+        )
 
     private fun YoutubeDLResponse?.errorLine(): String {
         val stderr = this?.err?.trim().orEmpty()

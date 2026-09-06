@@ -22,6 +22,7 @@ internal object EngineCommand {
         container: String,
         savedInfo: File?,
         webpageUrl: String?,
+        cookiesFile: File? = null,
     ): YoutubeDLRequest {
         val request = if (savedInfo != null) {
             // With a saved extraction there is no URL argument: the JSON is the input, and
@@ -42,6 +43,9 @@ internal object EngineCommand {
             // Ask for one container rather than whatever the streams happened to arrive in.
             addOption("--merge-output-format", container)
             addOption("--newline")
+            // A replayed extraction already holds signed URLs, but a fresh one - and any
+            // fragment fetch - still needs the session.
+            cookiesFile?.let { addOption("--cookies", it.absolutePath) }
         }
     }
 }

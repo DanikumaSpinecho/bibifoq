@@ -11,6 +11,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.ConnectionPool
+import okhttp3.CookieJar
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -66,25 +67,27 @@ class HttpEngine(
     fun cancelAll() = client.dispatcher.cancelAll()
 
     companion object {
-        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-            // Short connect timeout: on a flaky mobile link, failing over to the next tier
-            // beats waiting out a stalled TCP handshake.
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
-            .callTimeout(45, TimeUnit.SECONDS)
-            // Hold connections open long enough to be reused across a resolve-then-download
-            // sequence, which is the common path.
-            .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
-            .retryOnConnectionFailure(true)
-            .followRedirects(true)
-            .dispatcher(
-                Dispatcher().apply {
-                    maxRequests = 48
-                    maxRequestsPerHost = 12
-                },
-            )
-            .build()
+        fun defaultClient(cookieJar: CookieJar = CookieJar.NO_COOKIES): OkHttpClient =
+            OkHttpClient.Builder()
+                .cookieJar(cookieJar)
+                // Short connect timeout: on a flaky mobile link, failing over to the next tier
+                // beats waiting out a stalled TCP handshake.
+                .connectTimeout(8, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .writeTimeout(15, TimeUnit.SECONDS)
+                .callTimeout(45, TimeUnit.SECONDS)
+                // Hold connections open long enough to be reused across a resolve-then-download
+                // sequence, which is the common path.
+                .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
+                .retryOnConnectionFailure(true)
+                .followRedirects(true)
+                .dispatcher(
+                    Dispatcher().apply {
+                        maxRequests = 48
+                        maxRequestsPerHost = 12
+                    },
+                )
+                .build()
     }
 }
 

@@ -225,14 +225,16 @@ class MediaResolverTest {
 
     @Test
     fun `stops at a usable native stream and offers the rest instead of fetching it`() = runBlocking {
-        // The whole point: a page that already hands us a playable stream should not pay for an
-        // interpreter start just to enumerate resolutions nobody asked for.
+        // The whole point: a page that already hands us a stream at the resolution people watch
+        // should not pay for an interpreter start to enumerate the rest.
         server.dispatch {
             MockResponse().setResponseCode(200).setHeader("Content-Type", "text/html").setBody(
                 """
                 <html><head>
                   <meta property="og:title" content="Good enough">
                   <meta property="og:video:secure_url" content="https://cdn.example.com/720.mp4">
+                  <meta property="og:video:width" content="1280">
+                  <meta property="og:video:height" content="720">
                 </head></html>
                 """.trimIndent(),
             )
@@ -257,6 +259,7 @@ class MediaResolverTest {
                 <html><head>
                   <meta property="og:title" content="Good enough">
                   <meta property="og:video:secure_url" content="https://cdn.example.com/720.mp4">
+                  <meta property="og:video:height" content="720">
                 </head></html>
                 """.trimIndent(),
             )
@@ -311,6 +314,76 @@ class MediaResolverTest {
 
         assertIs<ResolveUpdate.Complete>(updates.last())
         assertEquals(1, engine.callCount, "a cache hit must not satisfy an explicit full request")
+    }
+
+    @Test
+    fun `does not settle for a low-resolution fallback stream`() = runBlocking {
+        // og:video is there for social previews, so it is routinely a 360p fallback. Stopping
+        // at it hands 360p to someone who was watching 720p - fast, and wrong.
+        server.dispatch {
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "text/html").setBody(
+                """
+                <html><head>
+                  <meta property="og:title" content="Low-res preview">
+                  <meta property="og:video:secure_url" content="https://cdn.example.com/360.mp4">
+                  <meta property="og:video:width" content="640">
+                  <meta property="og:video:height" content="360">
+                </head></html>
+                """.trimIndent(),
+            )
+        }
+        val engine = FakeRemoteEngine()
+
+        val updates = resolver(engine).resolve(server.url("/watch/2").toString()).toList()
+
+        val complete = assertIs<ResolveUpdate.Complete>(updates.last())
+        assertEquals(Provenance.YTDLP, complete.winner)
+        assertEquals(1080, complete.info.formats.maxOf { it.height ?: 0 })
+        assertEquals(1, engine.callCount, "360p is not good enough to stop on")
+    }
+
+    @Test
+    fun `an unknown height is not assumed to be good enough`() = runBlocking {
+        // No dimensions advertised at all. Guessing optimistically is how you ship the wrong file.
+        server.dispatch {
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "text/html").setBody(
+                """
+                <html><head>
+                  <meta property="og:title" content="Unknown size">
+                  <meta property="og:video:secure_url" content="https://cdn.example.com/v.mp4">
+                </head></html>
+                """.trimIndent(),
+            )
+        }
+        val engine = FakeRemoteEngine()
+
+        resolver(engine).resolve(server.url("/watch/3").toString()).toList()
+
+        assertEquals(1, engine.callCount)
+    }
+
+    @Test
+    fun `a lower target makes a lower stream good enough`() = runBlocking {
+        // Someone who capped quality at 480p is served by the 480p stream already in hand.
+        server.dispatch {
+            MockResponse().setResponseCode(200).setHeader("Content-Type", "text/html").setBody(
+                """
+                <html><head>
+                  <meta property="og:title" content="Small on purpose">
+                  <meta property="og:video:secure_url" content="https://cdn.example.com/480.mp4">
+                  <meta property="og:video:height" content="480">
+                </head></html>
+                """.trimIndent(),
+            )
+        }
+        val engine = FakeRemoteEngine()
+
+        val updates = resolver(engine)
+            .resolve(server.url("/watch/4").toString(), desiredHeight = 480)
+            .toList()
+
+        assertEquals(Provenance.NATIVE, assertIs<ResolveUpdate.Complete>(updates.last()).winner)
+        assertEquals(0, engine.callCount)
     }
 
     /** Answers every request with the same response, whatever the path. */

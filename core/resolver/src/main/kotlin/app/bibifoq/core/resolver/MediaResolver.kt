@@ -66,6 +66,11 @@ class MediaResolver(
         rawUrl: String,
         options: RemoteEngineOptions = RemoteEngineOptions(),
         mode: ResolveMode = ResolveMode.FAST,
+        /**
+         * The height the user actually wants. A cheap answer below this is not good enough to
+         * stop on, however fast it was.
+         */
+        desiredHeight: Int? = null,
     ): Flow<ResolveUpdate> =
         channelFlow {
             val clock = TimeSource.Monotonic.markNow()
@@ -151,7 +156,7 @@ class MediaResolver(
                 // A stream we can already fetch is enough to stop on. Enumerating the rest of
                 // the ladder costs an interpreter start, and most of the time nobody wanted it -
                 // so it is offered rather than spent, via moreFormatsAvailable below.
-                if (mode == ResolveMode.FAST && best!!.isDownloadable) {
+                if (mode == ResolveMode.FAST && isGoodEnoughToStopOn(best!!, desiredHeight)) {
                     remoteDeferred?.cancel()
                     val result = best!!
                     cache.putIfCaching(normalized, result)
@@ -288,6 +293,26 @@ class MediaResolver(
             .reduce { acc, info -> acc.mergedWith(info) }
     }
 
+    /**
+     * Whether a cheap answer is worth stopping on.
+     *
+     * Being downloadable is not the same as being what the user wanted. Pages routinely
+     * advertise a low-resolution fallback in `og:video` - it is there for social previews, not
+     * for viewing - so stopping at the first playable stream quietly hands back 360p to someone
+     * who was watching 720p. Speed is only worth having when the answer is also right.
+     *
+     * A format list marked [Completeness.COMPLETE] is a real quality ladder and is always
+     * enough. Otherwise the best height on offer has to reach the target, and an unknown height
+     * counts as not reaching it: the engine is cheap next to silently downloading the wrong thing.
+     */
+    private fun isGoodEnoughToStopOn(info: MediaInfo, desiredHeight: Int?): Boolean {
+        if (!info.isDownloadable) return false
+        if (info.completeness == Completeness.COMPLETE) return true
+        val target = desiredHeight ?: config.satisfyingHeight
+        val best = info.formats.mapNotNull { it.height }.maxOrNull() ?: return false
+        return best >= target
+    }
+
     private suspend fun MetadataCache.putIfCaching(key: String, info: MediaInfo) {
         if (config.useCache) put(UrlNormalizer.cacheKey(key), info)
     }
@@ -341,6 +366,13 @@ data class ResolverConfig(
     val authoritativeHeadStart: Duration = 4.seconds,
 
     val useCache: Boolean = true,
+
+    /**
+     * Height a cheap answer must reach before the resolver stops there, when the user has
+     * expressed no preference of their own. Set at the resolution most people are actually
+     * watching, so a fallback stream never passes for the real thing.
+     */
+    val satisfyingHeight: Int = 720,
 
     val userAgent: String = UserAgents.DESKTOP,
 )
