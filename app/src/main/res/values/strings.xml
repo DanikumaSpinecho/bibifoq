@@ -17,6 +17,8 @@
     <string name="resolving">Resolving…</string>
     <string name="loading_formats">Loading formats…</string>
     <string name="choose_format">Choose a format</string>
+    <string name="selected_format">Selected: %1$s</string>
+    <string name="playlist_entries">%1$d items on this page</string>
     <string name="best_video">Best video</string>
     <string name="audio_only">Audio only</string>
 

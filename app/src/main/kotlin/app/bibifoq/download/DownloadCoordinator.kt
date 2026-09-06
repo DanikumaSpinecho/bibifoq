@@ -45,6 +45,7 @@ class DownloadCoordinator(
     private val dao: DownloadDao,
     private val settings: SettingsStore,
     private val scope: CoroutineScope,
+    private val engineDownloader: EngineDownloader,
 ) {
 
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -197,7 +198,7 @@ class DownloadCoordinator(
         val headers = info.httpHeaders + format.httpHeaders
 
         return when {
-            selection.requiresMuxing -> EngineDownloader().download(info, selection, destination)
+            selection.requiresMuxing -> engineDownloader.download(info, selection, destination)
 
             format.protocol == Protocol.HLS ->
                 HlsDownloader(httpEngine, config).download(
@@ -210,7 +211,7 @@ class DownloadCoordinator(
                 )
 
             // DASH segment templates and exotic protocols: the engine knows how, we do not.
-            else -> EngineDownloader().download(info, selection, destination)
+            else -> engineDownloader.download(info, selection, destination)
         }
     }
 

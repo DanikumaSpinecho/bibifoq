@@ -4,16 +4,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.Button
@@ -21,96 +27,172 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.bibifoq.R
 import app.bibifoq.core.model.MediaFormat
 import app.bibifoq.core.model.MediaInfo
+import app.bibifoq.core.model.PlaylistEntry
 import app.bibifoq.core.model.Provenance
 import coil3.compose.AsyncImage
 import kotlin.time.Duration
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The home screen.
+ *
+ * Layout note, learned the hard way: the download action lives in a bar pinned outside the
+ * scrolling area. When it sat at the bottom of the content column, a thumbnail plus a title
+ * plus a format list added up to more than a phone screen, and since the column did not
+ * scroll, the button was simply clipped away - the formats were visible and tappable while the
+ * only thing that starts a download was unreachable. Pinning it makes that failure impossible
+ * regardless of how tall the content gets.
+ */
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     onPasteRequested: () -> String?,
+    onDownloadEnqueued: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
+    // Enqueuing is otherwise invisible from this screen, so hand control to the downloads list
+    // where the new row actually shows up.
     LaunchedEffect(state.lastEnqueuedTitle) {
-        if (state.lastEnqueuedTitle != null) viewModel.acknowledgeEnqueued()
+        if (state.lastEnqueuedTitle != null) {
+            onDownloadEnqueued()
+            viewModel.acknowledgeEnqueued()
+        }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        OutlinedTextField(
-            value = state.url,
-            onValueChange = viewModel::onUrlChanged,
-            label = { Text(stringResourceCompat(R.string.paste_a_link)) },
-            placeholder = { Text(stringResourceCompat(R.string.url_hint)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            trailingIcon = {
-                IconButton(onClick = { onPasteRequested()?.let(viewModel::onUrlChanged) }) {
-                    Icon(Icons.Default.ContentPaste, contentDescription = null)
-                }
-            },
-        )
+    Column(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OutlinedTextField(
+                value = state.url,
+                onValueChange = viewModel::onUrlChanged,
+                label = { Text(stringResource(R.string.paste_a_link)) },
+                placeholder = { Text(stringResource(R.string.url_hint)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = {
+                    IconButton(onClick = { onPasteRequested()?.let(viewModel::onUrlChanged) }) {
+                        Icon(Icons.Default.ContentPaste, contentDescription = null)
+                    }
+                },
+            )
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = { viewModel.resolve() },
-                enabled = state.url.isNotBlank() && !state.isBusy,
-            ) {
-                Text(stringResourceCompat(R.string.resolve))
-            }
-            if (state.info != null || state.error != null) {
-                androidx.compose.material3.TextButton(onClick = viewModel::clear) {
-                    Text(stringResourceCompat(R.string.clear))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { viewModel.resolve() },
+                    enabled = state.url.isNotBlank() && !state.isBusy,
+                ) {
+                    Text(stringResource(R.string.resolve))
                 }
+                if (state.info != null || state.error != null) {
+                    TextButton(onClick = viewModel::clear) {
+                        Text(stringResource(R.string.clear))
+                    }
+                }
+            }
+
+            when {
+                state.phase == ResolvePhase.RESOLVING -> ResolvingRow()
+
+                state.error != null -> Card(Modifier.fillMaxWidth()) {
+                    Text(
+                        text = state.error!!,
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                state.info != null -> MediaCard(
+                    info = state.info!!,
+                    isComplete = state.isComplete,
+                    winner = state.winner,
+                    previewElapsed = state.previewElapsed,
+                    completeElapsed = state.completeElapsed,
+                    selectedFormat = state.selectedFormat,
+                    onSelectFormat = viewModel::selectFormat,
+                    onOpenEntry = viewModel::resolve,
+                )
             }
         }
 
-        when {
-            state.phase == ResolvePhase.RESOLVING -> ResolvingRow()
+        DownloadBar(
+            selectedFormat = state.selectedFormat,
+            canDownload = state.info?.isDownloadable == true,
+            isResolving = state.isBusy,
+            onDownload = viewModel::download,
+        )
+    }
+}
 
-            state.error != null -> Card(Modifier.fillMaxWidth()) {
+/**
+ * The pinned action area. Always on screen whenever there is anything to download, so the
+ * primary action can never end up below the fold.
+ */
+@Composable
+private fun DownloadBar(
+    selectedFormat: MediaFormat?,
+    canDownload: Boolean,
+    isResolving: Boolean,
+    onDownload: () -> Unit,
+) {
+    if (!canDownload) return
+
+    Surface(tonalElevation = 3.dp) {
+        Column {
+            HorizontalDivider()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Say out loud what pressing the button will fetch; a chip's selected tint on
+                // its own is too quiet to be the only feedback for a choice.
                 Text(
-                    text = state.error!!,
-                    modifier = Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.error,
+                    text = selectedFormat
+                        ?.let { stringResource(R.string.selected_format, it.label()) }
+                        ?: stringResource(R.string.best_video),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Button(
+                    onClick = onDownload,
+                    enabled = !isResolving,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.download))
+                }
             }
-
-            state.info != null -> MediaCard(
-                info = state.info!!,
-                isComplete = state.isComplete,
-                winner = state.winner,
-                previewElapsed = state.previewElapsed,
-                completeElapsed = state.completeElapsed,
-                selectedFormat = state.selectedFormat,
-                onSelectFormat = viewModel::selectFormat,
-                onDownload = viewModel::download,
-            )
         }
     }
 }
@@ -121,8 +203,8 @@ private fun ResolvingRow() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        CircularProgressIndicator(Modifier.height(20.dp))
-        Text(stringResourceCompat(R.string.resolving), style = MaterialTheme.typography.bodyMedium)
+        CircularProgressIndicator(Modifier.size(20.dp))
+        Text(stringResource(R.string.resolving), style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -135,7 +217,7 @@ private fun MediaCard(
     completeElapsed: Duration?,
     selectedFormat: MediaFormat?,
     onSelectFormat: (MediaFormat) -> Unit,
-    onDownload: () -> Unit,
+    onOpenEntry: (String) -> Unit,
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(
@@ -165,41 +247,71 @@ private fun MediaCard(
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }
 
-            // The timing line is not decoration: it is how the tiering is verified on a real
-            // device, and it makes a regression in resolve latency immediately visible.
+            // Not decoration: this is how the tiering gets verified on a real device, and it
+            // makes a latency regression visible without instrumentation.
             ProvenanceLine(winner, previewElapsed, completeElapsed, info.extractor)
 
             if (!isComplete) {
-                Spacer(Modifier.height(2.dp))
                 LinearProgressIndicator(Modifier.fillMaxWidth())
                 Text(
-                    stringResourceCompat(R.string.loading_formats),
+                    stringResource(R.string.loading_formats),
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
 
             if (info.formats.isNotEmpty()) {
                 Text(
-                    stringResourceCompat(R.string.choose_format),
+                    stringResource(R.string.choose_format),
                     style = MaterialTheme.typography.labelLarge,
                 )
-                FormatList(
+                FormatChips(
                     formats = info.formats,
                     selected = selectedFormat,
                     onSelect = onSelectFormat,
                 )
             }
 
-            Button(
-                onClick = onDownload,
-                enabled = info.formats.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.Download, contentDescription = null)
-                Spacer(Modifier.height(0.dp))
-                Text("  " + stringResourceCompat(R.string.download))
+            if (info.entries.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.playlist_entries, info.entries.size),
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                info.entries.take(MAX_VISIBLE_ENTRIES).forEach { entry ->
+                    PlaylistEntryRow(entry, onOpenEntry)
+                }
             }
         }
+    }
+}
+
+/** A page that resolved to several items: tapping one resolves that item on its own. */
+@Composable
+private fun PlaylistEntryRow(entry: PlaylistEntry, onOpen: (String) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpen(entry.url) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        entry.thumbnailUrl?.let { thumbnail ->
+            AsyncImage(
+                model = thumbnail,
+                contentDescription = null,
+                modifier = Modifier
+                    .width(72.dp)
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
+        }
+        Text(
+            text = entry.title,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -223,28 +335,48 @@ private fun ProvenanceLine(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Format choices as wrapping chips.
+ *
+ * A fixed-height scrolling list here was a mistake twice over: it ate 180dp whatever the format
+ * count, and it put a scroll container inside a scroll container.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun FormatList(
+private fun FormatChips(
     formats: List<MediaFormat>,
     selected: MediaFormat?,
     onSelect: (MediaFormat) -> Unit,
 ) {
-    // Sorted best-first, because that is the order people scan and almost always the choice
-    // they want.
+    // Best first: that is the order people scan, and usually the one they want.
     val ordered = formats.sortedWith(
         compareByDescending<MediaFormat> { it.height ?: 0 }.thenByDescending { it.bitrateBps ?: 0 },
     )
-    LazyColumn(
-        modifier = Modifier.height(180.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        items(ordered, key = { it.id + it.url.hashCode() }) { format ->
+        ordered.forEach { format ->
+            val isSelected = format.id == selected?.id && format.url == selected.url
             FilterChip(
-                selected = format.id == selected?.id,
+                selected = isSelected,
                 onClick = { onSelect(format) },
                 label = { Text(format.label() + sizeSuffix(format)) },
-                modifier = Modifier.clickable { onSelect(format) },
+                // A tick, because the selected chip's tint alone is easy to miss and this is
+                // the only signal that a tap did anything.
+                leadingIcon = if (isSelected) {
+                    {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(FilterChipDefaults.IconSize),
+                        )
+                    }
+                } else {
+                    null
+                },
             )
         }
     }
@@ -254,9 +386,7 @@ private fun sizeSuffix(format: MediaFormat): String {
     val bytes = format.filesizeBytes ?: return ""
     val megabytes = bytes / 1024.0 / 1024.0
     val approximate = if (format.filesizeApproximate) "~" else ""
-    return " · $approximate%.1f MB".format(megabytes)
+    return " · $approximate%.0f MB".format(megabytes)
 }
 
-@Composable
-private fun stringResourceCompat(id: Int): String =
-    androidx.compose.ui.res.stringResource(id)
+private const val MAX_VISIBLE_ENTRIES = 25

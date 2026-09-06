@@ -158,6 +158,7 @@ private fun BibifoqApp(
             Tab.HOME -> HomeScreen(
                 viewModel = homeViewModel,
                 onPasteRequested = readClipboard,
+                onDownloadEnqueued = { tab = Tab.DOWNLOADS },
                 modifier = Modifier.padding(padding),
             )
 

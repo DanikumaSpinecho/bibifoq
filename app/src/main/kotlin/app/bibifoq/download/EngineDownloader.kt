@@ -3,6 +3,7 @@ package app.bibifoq.download
 import app.bibifoq.core.downloader.DownloadProgress
 import app.bibifoq.core.model.FormatSelection
 import app.bibifoq.core.model.MediaInfo
+import app.bibifoq.engine.YtDlpEngine
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import java.io.File
@@ -28,7 +29,9 @@ import kotlin.coroutines.coroutineContext
  * Everything that is a single stream goes down the faster native path instead - see
  * [DownloadCoordinator].
  */
-class EngineDownloader {
+class EngineDownloader(
+    private val engine: YtDlpEngine,
+) {
 
     fun download(
         info: MediaInfo,
@@ -38,6 +41,18 @@ class EngineDownloader {
         val clock = TimeSource.Monotonic.markNow()
         val processId = UUID.randomUUID().toString()
         val total = selection.totalBytes
+
+        // The launch-time warm-up is best effort and may have failed; a download must not
+        // discover that by way of an opaque native error.
+        try {
+            engine.ensureReady()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            trySend(DownloadProgress.Failed(error))
+            close()
+            return@callbackFlow
+        }
 
         destination.parentFile?.mkdirs()
 

@@ -120,10 +120,23 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
                 }
             } else {
                 FormatSelection.choose(info.formats, settings.formatPreference())
-            } ?: return@launch
+            }
 
-            services.downloads.enqueue(info, selection)
-            _state.update { it.copy(lastEnqueuedTitle = info.title) }
+            if (selection == null) {
+                _state.update { it.copy(error = "This item exposes no downloadable stream.") }
+                return@launch
+            }
+
+            // Enqueuing writes a database row and starts a coroutine; either can fail, and a
+            // silent return here reads to the user as a button that does nothing.
+            runCatching { services.downloads.enqueue(info, selection) }.fold(
+                onSuccess = { _state.update { it.copy(lastEnqueuedTitle = info.title) } },
+                onFailure = { failure ->
+                    _state.update {
+                        it.copy(error = failure.message ?: "Could not start the download.")
+                    }
+                },
+            )
         }
     }
 

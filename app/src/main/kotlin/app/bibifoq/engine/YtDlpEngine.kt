@@ -66,6 +66,14 @@ class YtDlpEngine(
             .onFailure { Log.w(TAG, "engine warm-up failed", it) }
     }
 
+    /**
+     * Boots the runtime if it is not up yet, and throws if it cannot be.
+     *
+     * [warmUp] deliberately swallows failures because it runs speculatively at launch. A
+     * download cannot: it needs to fail loudly so the queue can show why.
+     */
+    suspend fun ensureReady() = ensureInitialised()
+
     private suspend fun ensureInitialised() {
         if (initialised.get()) return
         initLock.withLock {

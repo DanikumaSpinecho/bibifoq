@@ -124,8 +124,11 @@ Honnêtement, pour éviter les surprises :
 - **Pas de sous-titres**, pas de téléchargement en lot d'une playlist depuis l'interface (les
   entrées sont listées, pas encore mises en file).
 - **Pas de configuration de signature release** ni de gestion des mises à jour de l'app.
-- **Pas de tests instrumentés** ni de captures d'écran de l'interface : elle compile et l'APK
-  s'installe, mais elle n'a pas été parcourue sur un appareil.
+- **Pas de tests instrumentés** ni de couverture automatisée de l'interface. Le premier essai sur
+  appareil a d'ailleurs révélé un bug de mise en page : la colonne d'accueil ne défilait pas et le
+  bouton Télécharger tombait hors écran. L'action est désormais épinglée dans une barre hors de la
+  zone défilante, ce qui rend ce mode de panne impossible — mais rien n'empêche automatiquement le
+  prochain du même genre.
 
 ## Licence
 

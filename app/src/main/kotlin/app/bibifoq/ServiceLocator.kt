@@ -13,6 +13,7 @@ import app.bibifoq.data.BibifoqDatabase
 import app.bibifoq.data.DiskMetadataCache
 import app.bibifoq.data.SettingsStore
 import app.bibifoq.download.DownloadCoordinator
+import app.bibifoq.download.EngineDownloader
 import app.bibifoq.engine.YtDlpEngine
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -75,6 +76,7 @@ class ServiceLocator(context: Context) {
             dao = database.downloads(),
             settings = settings,
             scope = applicationScope,
+            engineDownloader = EngineDownloader(ytDlpEngine),
         )
     }
 }
