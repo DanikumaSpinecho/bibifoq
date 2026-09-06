@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- The metadata cache and the extraction engine binaries are both reproducible; backing
+         them up would move tens of megabytes for no benefit. -->
+    <exclude domain="file" path="metadata-cache/" />
+    <exclude domain="file" path="youtubedl-android/" />
+</full-backup-content>

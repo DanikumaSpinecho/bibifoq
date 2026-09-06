@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bibifoq</string>
+
+    <string name="paste_a_link">Paste a link</string>
+    <string name="url_hint">https://…</string>
+    <string name="resolve">Resolve</string>
+    <string name="download">Download</string>
+    <string name="cancel">Cancel</string>
+    <string name="retry">Retry</string>
+    <string name="clear">Clear</string>
+
+    <string name="tab_home">Home</string>
+    <string name="tab_downloads">Downloads</string>
+    <string name="tab_settings">Settings</string>
+
+    <string name="resolving">Resolving…</string>
+    <string name="loading_formats">Loading formats…</string>
+    <string name="choose_format">Choose a format</string>
+    <string name="best_video">Best video</string>
+    <string name="audio_only">Audio only</string>
+
+    <string name="downloads_empty">Nothing downloaded yet.</string>
+    <string name="notification_channel_downloads">Downloads</string>
+    <string name="notification_downloading">Downloading</string>
+
+    <string name="settings_engine">Extraction engine</string>
+    <string name="settings_update_engine">Update engine</string>
+    <string name="settings_clear_cache">Clear metadata cache</string>
+    <string name="settings_max_connections">Connections per download</string>
+    <string name="settings_prefetch">Prefetch links from the clipboard</string>
+    <string name="settings_prefetch_summary">Start resolving as soon as a link appears, so it is ready when you are</string>
+</resources>
