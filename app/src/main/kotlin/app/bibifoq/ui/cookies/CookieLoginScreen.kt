@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,10 +32,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.bibifoq.R
@@ -65,6 +69,10 @@ fun CookieLoginScreen(
     var address by remember { mutableStateOf("") }
     var currentUrl by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
+    // A WebView with nothing loaded paints a blank rectangle - black on a dark theme - which
+    // reads as a broken screen rather than as "type an address". Keep it out of the tree until
+    // there is something to show.
+    var hasNavigated by remember { mutableStateOf(false) }
 
     val webView = remember {
         WebView(context).apply {
@@ -147,7 +155,10 @@ fun CookieLoginScreen(
                     )
                     Button(
                         onClick = {
-                            UrlNormalizer.normalize(address)?.let(webView::loadUrl)
+                            UrlNormalizer.normalize(address)?.let { url ->
+                                hasNavigated = true
+                                webView.loadUrl(url)
+                            }
                         },
                         enabled = address.isNotBlank(),
                     ) {
@@ -158,11 +169,53 @@ fun CookieLoginScreen(
 
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
 
-            AndroidView(
-                factory = { webView },
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (hasNavigated) {
+                AndroidView(
+                    factory = { webView },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                StartingPoint(onPick = { suggestion ->
+                    address = suggestion
+                    hasNavigated = true
+                    UrlNormalizer.normalize(suggestion)?.let(webView::loadUrl)
+                })
+            }
         }
+    }
+}
+
+/**
+ * What the screen shows before anything is loaded.
+ *
+ * An empty browser is not a useful starting point, so this explains the flow and offers to
+ * start from the address already in the clipboard-free case: the site the user came here for.
+ */
+@Composable
+private fun StartingPoint(onPick: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            Icons.Default.Language,
+            contentDescription = null,
+            modifier = Modifier.size(48.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            stringResource(R.string.cookie_login_start_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            stringResource(R.string.cookie_login_start_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

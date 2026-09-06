@@ -16,28 +16,103 @@ internal object HtmlEntities {
 
     fun decode(input: String): String {
         if ('&' !in input) return input
-        return REFERENCE.replace(input) { match ->
-            val body = match.groupValues[1]
-            when {
-                body.startsWith("#x") || body.startsWith("#X") ->
-                    codePoint(body.drop(2).toIntOrNull(16)) ?: match.value
-                body.startsWith("#") ->
-                    codePoint(body.drop(1).toIntOrNull()) ?: match.value
-                // Named references are case-sensitive: &Eacute; and &eacute; differ.
-                else -> NAMED[body] ?: match.value
+
+        val out = StringBuilder(input.length)
+        var index = 0
+        while (index < input.length) {
+            val char = input[index]
+            if (char != '&') {
+                out.append(char)
+                index++
+                continue
+            }
+            val consumed = decodeReferenceAt(input, index, out)
+            if (consumed > 0) {
+                index += consumed
+            } else {
+                out.append(char)
+                index++
             }
         }
+        return out.toString()
     }
 
-    private fun codePoint(value: Int?): String? {
-        if (value == null || value !in 1..0x10FFFF) return null
-        // Surrogate halves are not characters; a page emitting them is broken, not expressive.
+    /**
+     * Decodes the reference starting at [start], appending to [out].
+     *
+     * @return how many characters were consumed, or 0 when this is not a reference and the
+     *   `&` should be kept as written.
+     */
+    private fun decodeReferenceAt(input: String, start: Int, out: StringBuilder): Int {
+        val afterAmpersand = start + 1
+        if (afterAmpersand >= input.length) return 0
+
+        if (input[afterAmpersand] == '#') return decodeNumericAt(input, start, out)
+
+        var end = afterAmpersand
+        while (end < input.length && input[end].isNameChar() && end - afterAmpersand < maxNameLength) {
+            end++
+        }
+        if (end == afterAmpersand) return 0
+
+        // Properly terminated: the name means what it says.
+        if (end < input.length && input[end] == ';') {
+            val replacement = NAMED[input.substring(afterAmpersand, end)] ?: return 0
+            out.append(replacement)
+            return end + 1 - start
+        }
+
+        // No semicolon. Browsers still decode the historical names here, and real pages rely on
+        // it - "Caf&eacute" is not a typo anyone fixes. Longest match wins, but only when what
+        // follows could not be part of a longer name or an assignment: that guard is what keeps
+        // a query string like "?a=1&copy=2" from acquiring a copyright sign.
+        var candidate = end
+        while (candidate > afterAmpersand) {
+            val replacement = NAMED[input.substring(afterAmpersand, candidate)]
+            if (replacement != null) {
+                val following = input.getOrNull(candidate)
+                if (following != null && (following.isNameChar() || following == '=')) return 0
+                out.append(replacement)
+                return candidate - start
+            }
+            candidate--
+        }
+        return 0
+    }
+
+    /** Numeric references must be terminated; an unterminated one is far more often a false alarm. */
+    private fun decodeNumericAt(input: String, start: Int, out: StringBuilder): Int {
+        var index = start + 2
+        val hexadecimal = index < input.length && (input[index] == 'x' || input[index] == 'X')
+        if (hexadecimal) index++
+
+        val digitsStart = index
+        while (index < input.length && input[index].isDigitFor(hexadecimal)) index++
+        if (index == digitsStart || index >= input.length || input[index] != ';') return 0
+
+        val value = input.substring(digitsStart, index)
+            .toIntOrNull(if (hexadecimal) 16 else 10) ?: return 0
+        val replacement = codePoint(value) ?: return 0
+        out.append(replacement)
+        return index + 1 - start
+    }
+
+    private fun codePoint(value: Int): String? {
+        if (value !in 1..0x10FFFF) return null
+        // Surrogate halves are not characters; a page emitting one is broken, not expressive.
         if (value in 0xD800..0xDFFF) return null
         return String(Character.toChars(value))
     }
 
-    /** `&name;`, `&#8230;` or `&#x2026;`. The length bound keeps a stray `&` from matching far. */
-    private val REFERENCE = Regex("""&(#[xX][0-9a-fA-F]{1,6}|#[0-9]{1,7}|[a-zA-Z][a-zA-Z0-9]{1,31});""")
+    /** Entity names are ASCII; accented letters never appear inside one. */
+    private fun Char.isNameChar(): Boolean = this in 'a'..'z' || this in 'A'..'Z' || this in '0'..'9'
+
+    private fun Char.isDigitFor(hexadecimal: Boolean): Boolean =
+        if (hexadecimal) this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F' else this in '0'..'9'
+
+    /** Derived from the table so adding a longer name later cannot silently truncate the scan. */
+    private val maxNameLength: Int by lazy { NAMED.keys.maxOf { it.length } }
+
 
     /**
      * Names in the Latin-1 block, in code point order from 160.

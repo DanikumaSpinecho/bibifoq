@@ -52,9 +52,10 @@ class StructuredDataExtractor : NativeExtractor {
         val formats = buildList {
             // og:video is very often an iframe player, not a stream. Only trust it when the
             // URL actually looks like media, otherwise we would hand the downloader an HTML page.
-            val direct = contentUrl?.takeIf { it.looksLikeMedia() }
-            if (direct != null) {
-                val extension = direct.substringAfterLast('.').substringBefore('?').lowercase()
+            val direct = contentUrl
+            val extension = direct?.let(::mediaExtensionOf)
+            if (direct != null && extension != null) {
+                val isAudio = extension in AUDIO_EXTENSIONS
                 add(
                     MediaFormat(
                         id = "og-$extension",
@@ -65,10 +66,16 @@ class StructuredDataExtractor : NativeExtractor {
                             else -> Protocol.HTTPS
                         },
                         container = extension,
-                        videoCodec = extension.takeIf { it !in AUDIO_EXTENSIONS },
-                        audioCodec = extension.takeIf { it in AUDIO_EXTENSIONS },
-                        width = head["og:video:width"]?.toIntOrNull(),
-                        height = head["og:video:height"]?.toIntOrNull(),
+                        // A page tag says nothing about codecs. Inventing one from the file
+                        // extension put "mp4" where a codec name belongs, and on a signed URL
+                        // it put a chunk of query string there instead. The dimensions below
+                        // are enough to know this carries video.
+                        videoCodec = null,
+                        audioCodec = null,
+                        width = if (isAudio) null else head["og:video:width"]?.toIntOrNull(),
+                        height = if (isAudio) null else head["og:video:height"]?.toIntOrNull(),
+                        sampleRateHz = null,
+                        note = if (isAudio) "audio" else null,
                         httpHeaders = mapOf("Referer" to document.finalUrl),
                     ),
                 )
@@ -114,17 +121,19 @@ class StructuredDataExtractor : NativeExtractor {
                 return@firstNotNullOfOrNull null
             }
             VideoObject(
-                name = obj.str("name") ?: obj.str("headline"),
-                description = obj.str("description"),
+                // JSON-LD is JSON, but publishers routinely paste HTML-escaped text into it,
+                // so the same decoding the meta tags get applies here.
+                name = (obj.str("name") ?: obj.str("headline"))?.let(HtmlEntities::decode),
+                description = obj.str("description")?.let(HtmlEntities::decode),
                 thumbnailUrl = obj["thumbnailUrl"]?.asStringList()?.firstOrNull()
                     ?: (obj["thumbnail"] as? JsonObject)?.str("url"),
                 uploadDate = obj.str("uploadDate") ?: obj.str("datePublished"),
                 durationMs = obj.str("duration")?.toDurationMs(),
                 contentUrl = obj.str("contentUrl"),
                 identifier = obj.str("identifier") ?: obj.str("@id"),
-                author = (obj["author"] as? JsonObject)?.str("name")
+                author = ((obj["author"] as? JsonObject)?.str("name")
                     ?: obj.str("author")
-                    ?: (obj["creator"] as? JsonObject)?.str("name"),
+                    ?: (obj["creator"] as? JsonObject)?.str("name"))?.let(HtmlEntities::decode),
                 isLive = (obj["publication"] as? JsonObject)?.get("isLiveBroadcast")
                     ?.let { (it as? JsonPrimitive)?.content == "true" } == true,
             )
@@ -161,15 +170,6 @@ class StructuredDataExtractor : NativeExtractor {
     private companion object {
         val LENIENT = Json { ignoreUnknownKeys = true; isLenient = true }
 
-        val AUDIO_EXTENSIONS = setOf("mp3", "m4a", "opus", "ogg", "flac", "wav", "aac")
-        val MEDIA_EXTENSIONS = AUDIO_EXTENSIONS +
-            setOf("mp4", "webm", "mkv", "mov", "m4v", "ts", "m3u8", "mpd")
-
-        fun String.looksLikeMedia(): Boolean {
-            val path = substringBefore('?').substringBefore('#')
-            if ('.' !in path.substringAfterLast('/')) return false
-            return path.substringAfterLast('.').lowercase() in MEDIA_EXTENSIONS
-        }
 
         /** Durations arrive either as ISO-8601 (`PT1M33S`) or as plain seconds. */
         fun String.toDurationMs(): Long? {

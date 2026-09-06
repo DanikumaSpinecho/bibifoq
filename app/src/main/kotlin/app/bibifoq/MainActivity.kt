@@ -34,13 +34,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.bibifoq.core.resolver.UrlNormalizer
+import androidx.core.content.FileProvider
+import androidx.core.net.toUri
+import app.bibifoq.data.DownloadRecord
 import app.bibifoq.data.SettingsStore
+import app.bibifoq.download.MediaStorePublisher
+import java.io.File
 import app.bibifoq.download.DownloadService
 import app.bibifoq.ui.cookies.CookieLoginScreen
 import app.bibifoq.ui.downloads.DownloadsScreen
@@ -218,6 +224,8 @@ private fun BibifoqApp(
         val queuedMessage = stringResource(R.string.queued_toast)
         val deletedMessage = stringResource(R.string.deleted_file)
         val cacheClearedMessage = stringResource(R.string.cache_cleared)
+        val cannotOpenMessage = stringResource(R.string.cannot_open)
+        val context = LocalContext.current
 
         when (tab) {
             Tab.HOME -> HomeScreen(
@@ -233,6 +241,11 @@ private fun BibifoqApp(
             Tab.DOWNLOADS -> DownloadsScreen(
                 downloads = services.downloads.observeAll(),
                 onCancel = services.downloads::cancel,
+                onOpen = { record ->
+                    if (!openDownload(context, record)) {
+                        scope.launch { snackbar.showSnackbar(cannotOpenMessage) }
+                    }
+                },
                 onDeleteFile = { id ->
                     scope.launch {
                         services.downloads.remove(id, deleteFile = true)
@@ -278,6 +291,32 @@ private fun BibifoqApp(
             )
         }
     }
+}
+
+/**
+ * Hands a finished download to whatever app plays it.
+ *
+ * Prefers the shared-storage copy, because that URI is already the one other apps can read.
+ * Falls back to a FileProvider URI for the app-private file, which is what exists when
+ * publishing to shared storage failed.
+ *
+ * @return false when nothing on the device can open it.
+ */
+private fun openDownload(context: Context, record: DownloadRecord): Boolean {
+    val file = File(record.filePath)
+    val uri = record.mediaStoreUri?.toUri()
+        ?: run {
+            if (!file.exists()) return false
+            runCatching {
+                FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+            }.getOrNull() ?: return false
+        }
+
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, MediaStorePublisher.mimeTypeFor(file.extension))
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    return runCatching { context.startActivity(intent) }.isSuccess
 }
 
 private fun formatBytes(bytes: Long): String = when {

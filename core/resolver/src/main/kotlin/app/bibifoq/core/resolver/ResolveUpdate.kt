@@ -41,6 +41,14 @@ sealed interface ResolveUpdate {
          * the user wanted.
          */
         val moreFormatsAvailable: Boolean = false,
+        /**
+         * Set when this result is a fall-back rather than the real answer - the general engine
+         * was asked and failed, so what is offered is only what the page itself advertised.
+         *
+         * Without this the user sees a single low-resolution stream and reasonably concludes
+         * the site has nothing better, when in fact nothing ever looked.
+         */
+        val degradedReason: String? = null,
     ) : ResolveUpdate
 
     /** Terminal failure. Any [Partial] already emitted is still valid for display. */

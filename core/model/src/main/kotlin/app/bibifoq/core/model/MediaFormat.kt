@@ -39,14 +39,33 @@ data class MediaFormat(
     /** Whether the byte stream can be fetched with parallel HTTP range requests. */
     val supportsRangeParallelism: Boolean get() = protocol == Protocol.HTTPS
 
-    /** Short human label, e.g. "1080p60 · avc1 · 4.2 MB". */
+    /**
+     * Short human label, e.g. "1080p60 · avc1 · mp4".
+     *
+     * Every part is filtered: these fields come from pages and extractors that sometimes put
+     * something other than a codec in the codec field, and a label is not the place to find
+     * that out. Anything that does not read like a codec or a container is dropped rather than
+     * shown.
+     */
     fun label(): String = buildList {
         height?.let { h -> add(if ((frameRate ?: 0.0) > 30.5) "${h}p${frameRate!!.toInt()}" else "${h}p") }
-        videoCodec?.let { add(it.substringBefore('.')) }
-        if (!hasVideo) audioCodec?.let { add(it.substringBefore('.')) }
-        container?.let { add(it) }
-    }.joinToString(" · ").ifBlank { id }
+        videoCodec?.let { codec -> shortCodec(codec)?.let(::add) }
+        if (!hasVideo) audioCodec?.let { codec -> shortCodec(codec)?.let(::add) }
+        container?.takeIf { it.length <= MAX_CONTAINER_LENGTH && it.all(Char::isLetterOrDigit) }
+            ?.let(::add)
+    }.joinToString(" · ").ifBlank { note ?: id }
+
+    /** Codecs are short, dotted identifiers like `avc1.640028`; anything else is not one. */
+    private fun shortCodec(raw: String): String? {
+        val head = raw.substringBefore('.')
+        return head.takeIf {
+            it.isNotBlank() && it.length <= MAX_CODEC_LENGTH && it.all { c -> c.isLetterOrDigit() || c == '-' }
+        }
+    }
 }
+
+private const val MAX_CODEC_LENGTH = 12
+private const val MAX_CONTAINER_LENGTH = 6
 
 @Serializable
 enum class FormatKind { MUXED, VIDEO_ONLY, AUDIO_ONLY, UNKNOWN }

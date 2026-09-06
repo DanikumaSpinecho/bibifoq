@@ -207,9 +207,19 @@ class MediaResolver(
                     // The engine failed, but a native preview with a stream still works.
                     val fallback = best
                     if (fallback != null && fallback.isDownloadable) {
-                        val promoted = fallback.copy(completeness = Completeness.COMPLETE)
-                        cache.putIfCaching(normalized, promoted)
-                        send(ResolveUpdate.Complete(promoted, clock.elapsedNow(), Provenance.NATIVE))
+                        // Do not cache a fall-back: it would make one engine failure look like
+                        // this site's permanent answer for the next half hour.
+                        send(
+                            ResolveUpdate.Complete(
+                                info = fallback,
+                                elapsed = clock.elapsedNow(),
+                                winner = Provenance.NATIVE,
+                                moreFormatsAvailable = true,
+                                degradedReason = failure.message
+                                    ?: failure::class.simpleName
+                                    ?: "the extraction engine failed",
+                            ),
+                        )
                     } else {
                         send(
                             ResolveUpdate.Failed(

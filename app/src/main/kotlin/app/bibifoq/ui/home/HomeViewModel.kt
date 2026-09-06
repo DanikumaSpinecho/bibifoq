@@ -8,6 +8,7 @@ import app.bibifoq.core.model.MediaFormat
 import app.bibifoq.core.model.MediaInfo
 import app.bibifoq.core.model.Provenance
 import app.bibifoq.core.resolver.ResolveMode
+import app.bibifoq.data.SettingsStore
 import app.bibifoq.core.resolver.ResolveUpdate
 import kotlin.time.Duration
 import kotlinx.coroutines.Job
@@ -63,6 +64,7 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
                 previewElapsed = null,
                 completeElapsed = null,
                 moreFormatsAvailable = false,
+                degradedReason = null,
             )
         }
         launchResolution(url, ResolveMode.FAST)
@@ -89,8 +91,8 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
         resolveJob = viewModelScope.launch {
             // Someone who capped quality at 480p is satisfied by a 480p stream; someone who did
             // not is not satisfied by a 360p fallback. Same knob, both directions.
-            val desiredHeight = services.settings.settings.first().maxHeight
-            services.resolver.resolve(url, mode = mode, desiredHeight = desiredHeight)
+            val preferences = services.settings.settings.first()
+            services.resolver.resolve(url, mode = mode, desiredHeight = preferences.maxHeight)
                 .collect { update ->
                 when (update) {
                     is ResolveUpdate.Started -> Unit
@@ -113,9 +115,10 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
                             // Keep the user's pick when the fuller list still contains it.
                             selectedFormat = update.info.formats
                                 .firstOrNull { format -> format.id == it.selectedFormat?.id }
-                                ?: defaultFormat(update.info),
+                                ?: defaultFormat(update.info, preferences),
                             moreFormatsAvailable = update.moreFormatsAvailable,
                             isLoadingMoreFormats = false,
+                            degradedReason = update.degradedReason,
                         )
                     }
 
@@ -184,8 +187,17 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
         _state.update { it.copy(lastEnqueuedTitle = null) }
     }
 
-    private fun defaultFormat(info: MediaInfo): MediaFormat? =
-        FormatSelection.choose(info.formats, app.bibifoq.core.model.FormatPreference())
+    /**
+     * The format offered before the user picks one.
+     *
+     * It has to come from the user's own preferences: a quality cap that only applies once you
+     * open the picker is not a preference, it is a suggestion the app ignores.
+     */
+    private fun defaultFormat(
+        info: MediaInfo,
+        preferences: SettingsStore.Settings,
+    ): MediaFormat? =
+        FormatSelection.choose(info.formats, preferences.formatPreference())
             ?.let { it.video ?: it.audio }
 }
 
@@ -204,6 +216,8 @@ data class HomeUiState(
     /** A cheap tier answered; the full ladder is obtainable but has not been fetched. */
     val moreFormatsAvailable: Boolean = false,
     val isLoadingMoreFormats: Boolean = false,
+    /** Non-null when what is shown is only what the page advertised, because the engine failed. */
+    val degradedReason: String? = null,
 ) {
     val isComplete: Boolean get() = phase == ResolvePhase.COMPLETE
     val isBusy: Boolean get() = phase == ResolvePhase.RESOLVING || phase == ResolvePhase.PREVIEW

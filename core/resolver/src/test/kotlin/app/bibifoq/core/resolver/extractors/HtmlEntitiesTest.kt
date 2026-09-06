@@ -59,6 +59,43 @@ class HtmlEntitiesTest {
     }
 
     @Test
+    fun `decodes a named reference that was written without its semicolon`() {
+        // Real pages do this constantly, and browsers accept it, so a decoder that insists on
+        // the semicolon leaves "&eacute" sitting in the title and in the filename on disk.
+        assertEquals("Café", HtmlEntities.decode("Caf&eacute"))
+        // The space after the reference is part of the text and stays exactly where it was.
+        assertEquals("Café, crè me", HtmlEntities.decode("Caf&eacute, cr&egrave me"))
+        assertEquals("« x »", HtmlEntities.decode("&laquo x &raquo"))
+        assertEquals("Île-de-France", HtmlEntities.decode("&Icirc;le-de-France"))
+    }
+
+    @Test
+    fun `does not turn a query string into punctuation`() {
+        // "&copy=" is a parameter named copy, not a copyright sign. The guard is that a name
+        // followed by "=" or by more name characters is not a reference at all.
+        assertEquals(
+            "https://e.com/v?a=1&copy=2&reg=3",
+            HtmlEntities.decode("https://e.com/v?a=1&copy=2&reg=3"),
+        )
+        assertEquals("&nottext", HtmlEntities.decode("&nottext"))
+    }
+
+    @Test
+    fun `still prefers the longest name that fits`() {
+        // "&not" is a valid reference, but "&notin" would be a different one; matching the
+        // longest available name is what browsers do.
+        assertEquals("¬ ", HtmlEntities.decode("&not "))
+        assertEquals("¬", HtmlEntities.decode("&not"))
+    }
+
+    @Test
+    fun `requires the semicolon for a numeric reference`() {
+        assertEquals("é", HtmlEntities.decode("&#233;"))
+        // Without it this is far more often a false alarm than an escaped character.
+        assertEquals("&#233", HtmlEntities.decode("&#233"))
+    }
+
+    @Test
     fun `leaves anything it does not recognise exactly as written`() {
         assertEquals("&notanentity;", HtmlEntities.decode("&notanentity;"))
         assertEquals("a & b", HtmlEntities.decode("a & b"))

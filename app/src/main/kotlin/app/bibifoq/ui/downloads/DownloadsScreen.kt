@@ -1,6 +1,7 @@
 package app.bibifoq.ui.downloads
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -51,6 +53,7 @@ import kotlinx.coroutines.flow.Flow
 fun DownloadsScreen(
     downloads: Flow<List<DownloadRecord>>,
     onCancel: (String) -> Unit,
+    onOpen: (DownloadRecord) -> Unit,
     onDeleteFile: (String) -> Unit,
     onRemoveEntry: (String) -> Unit,
     onClearFinished: () -> Unit,
@@ -77,7 +80,7 @@ fun DownloadsScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(records, key = { it.id }) { record ->
-                DownloadRow(record, onCancel, onDeleteFile, onRemoveEntry)
+                DownloadRow(record, onCancel, onOpen, onDeleteFile, onRemoveEntry)
             }
         }
     }
@@ -115,13 +118,23 @@ private fun EmptyState(modifier: Modifier) {
 private fun DownloadRow(
     record: DownloadRecord,
     onCancel: (String) -> Unit,
+    onOpen: (DownloadRecord) -> Unit,
     onDeleteFile: (String) -> Unit,
     onRemoveEntry: (String) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val running = record.state == DownloadState.RUNNING || record.state == DownloadState.QUEUED
+    val finished = record.state == DownloadState.COMPLETED
 
-    ElevatedCard(Modifier.fillMaxWidth()) {
+    // Tapping a finished download to watch it is the obvious gesture; nothing else on the row
+    // needs a tap target, so the whole card takes it.
+    ElevatedCard(
+        modifier = if (finished) {
+            Modifier.fillMaxWidth().clickable { onOpen(record) }
+        } else {
+            Modifier.fillMaxWidth()
+        },
+    ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -171,6 +184,18 @@ private fun DownloadRow(
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             // The destructive one first because it is the one people come for:
                             // the copy that matters is the one in shared storage.
+                            if (finished) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.open_file)) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        onOpen(record)
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.delete_file)) },
                                 leadingIcon = {

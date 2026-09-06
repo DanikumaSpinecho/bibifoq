@@ -141,6 +141,7 @@ fun HomeScreen(
                     previewElapsed = state.previewElapsed,
                     completeElapsed = state.completeElapsed,
                     selectedFormat = state.selectedFormat,
+                    degradedReason = state.degradedReason,
                     moreFormatsAvailable = state.moreFormatsAvailable,
                     isLoadingMoreFormats = state.isLoadingMoreFormats,
                     onSelectFormat = viewModel::selectFormat,
@@ -249,6 +250,7 @@ private fun MediaCard(
     previewElapsed: Duration?,
     completeElapsed: Duration?,
     selectedFormat: MediaFormat?,
+    degradedReason: String?,
     moreFormatsAvailable: Boolean,
     isLoadingMoreFormats: Boolean,
     onSelectFormat: (MediaFormat) -> Unit,
@@ -292,6 +294,16 @@ private fun MediaCard(
                 Text(
                     stringResource(R.string.loading_formats),
                     style = MaterialTheme.typography.labelSmall,
+                )
+            }
+
+            degradedReason?.let { reason ->
+                // Otherwise a single low-resolution stream reads as "this site has nothing
+                // better", when the truth is that nothing ever looked.
+                Text(
+                    text = stringResource(R.string.degraded_result, reason),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
 

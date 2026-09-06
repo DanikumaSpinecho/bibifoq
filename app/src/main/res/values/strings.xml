@@ -16,6 +16,9 @@
     <string name="choose_format">Quality</string>
     <string name="selected_format">Selected: %1$s</string>
     <string name="find_more_formats">Look for other resolutions</string>
+    <string name="degraded_result">Only what the page advertises: the engine failed (%1$s). Try looking for other resolutions.</string>
+    <string name="open_file">Open</string>
+    <string name="cannot_open">Nothing can open this file</string>
     <string name="searching_more_formats">Looking for other resolutions…</string>
     <string name="playlist_entries">%1$d items on this page</string>
     <string name="home_empty_title">Paste or share a link</string>
@@ -85,5 +88,7 @@
     <string name="cookie_login_save">Save session</string>
     <string name="cookie_login_saved">Signed in to %1$s</string>
     <string name="cookie_login_nothing">No session found on this page</string>
+    <string name="cookie_login_start_title">Type a site address</string>
+    <string name="cookie_login_start_body">Enter the address of the site above and press Open. Sign in as you normally would, then press Save session.</string>
     <string name="back">Back</string>
 </resources>

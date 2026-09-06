@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Downloads land in the app's own external files directory before being published, and
+         a finished file has to be openable even when publishing to shared storage failed. -->
+    <external-files-path name="movies" path="Movies/" />
+    <external-files-path name="music" path="Music/" />
+    <files-path name="downloads" path="downloads/" />
+</paths>
