@@ -47,6 +47,8 @@
     <string name="settings_audio_only">Audio only</string>
     <string name="settings_audio_only_summary">Download the sound track and skip the video</string>
     <string name="settings_audio_container">Preferred audio format</string>
+    <string name="settings_embed_thumbnail">Album art</string>
+    <string name="settings_embed_thumbnail_summary">Write the video\'s cover image into the audio file</string>
 
     <string name="settings_files">Files</string>
     <string name="settings_filename_template">Filename</string>
@@ -77,6 +79,11 @@
     <string name="settings_engine_channel">Update channel</string>
     <string name="settings_engine_summary">The version shipped in the app ages as sites change. Update it when a site starts failing.</string>
     <string name="settings_clear_cache">Clear metadata cache</string>
+    <string name="settings_extra_args">Extra engine flags</string>
+    <string name="settings_extra_args_summary">Passed to the engine as typed, after everything else. Use this when a site needs a specific flag to expose its higher qualities.</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Bibifoq %1$s (build %2$d)</string>
+    <string name="settings_build">Built %1$s · %2$s</string>
     <string name="settings_cache_size">Metadata cache: %1$s</string>
     <string name="cache_cleared">Metadata cache cleared</string>
 

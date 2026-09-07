@@ -142,6 +142,33 @@ l'intérêt : le client HTTP de l'app le lit comme *cookie jar*, et le moteur le
 `--cookies`. Se connecter une fois vaut donc pour le chemin natif **et** pour le chemin moteur,
 au lieu d'un seul des deux.
 
+## Quand un site ne donne que de la basse qualité
+
+C'est le problème le plus fréquent et il n'a pas une cause unique. Par ordre de fréquence, et
+avec ce que l'app peut faire pour chacune :
+
+| Cause | Symptôme | Ce qu'on fait |
+|---|---|---|
+| Le moteur a échoué et on est retombé sur la balise `og:video` de la page | un seul format, souvent 360p | l'app **le dit** désormais, ne met pas ce repli en cache, et propose de rechercher |
+| Extracteur périmé | erreurs de connexion, formats manquants | *Réglages → Update engine* |
+| Le site exige une session | rien ou seulement des extraits | *Réglages → se connecter à un site* |
+| Le site réserve la haute qualité à un client précis | l'échelle s'arrête bas | **flags moteur supplémentaires** (ci-dessous) |
+| Le site filtre sur l'empreinte TLS du client | 403 sur les segments | **hors de portée ici** — voir plus bas |
+
+Le champ **flags moteur supplémentaires** dans les réglages passe ce que vous tapez au moteur,
+tel quel, après tout le reste. C'est l'échappatoire honnête : les sites verrouillent la qualité
+de façons qu'aucune application ne peut anticiper à l'avance, et le correctif est souvent un
+seul drapeau documenté, propre au site — typiquement `--extractor-args "<site>:<clé>=<valeur>"`.
+Les guillemets sont respectés, donc un drapeau copié-collé depuis la documentation fonctionne.
+
+Une chose que cette app **ne peut pas** faire : l'usurpation d'empreinte TLS (`--impersonate`).
+Certains sites placent leurs segments derrière un filtrage qui rejette la connexion avant même la
+requête HTTP, en se basant sur la signature TLS du client. yt-dlp sait le contourner, mais
+uniquement via `curl_cffi`, une extension native Python. Vérification faite en inspectant le
+runtime embarqué dans l'APK : **`curl_cffi` n'y est pas** (`mutagen` y est, ce qui explique que
+l'incrustation de pochette, elle, fonctionne). Sur ces sites-là, l'app est bloquée, et le dire
+vaut mieux que proposer un drapeau sans effet.
+
 ## Le moteur embarqué, et pourquoi sa version compte
 
 Le palier 2 embarque yt-dlp via `youtubedl-android`. La version figée dans l'APK vieillit vite :

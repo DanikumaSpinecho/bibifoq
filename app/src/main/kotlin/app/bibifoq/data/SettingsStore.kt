@@ -20,7 +20,9 @@ class SettingsStore(private val context: Context) {
 
     val settings: Flow<Settings> = context.dataStore.data.map { preferences ->
         Settings(
-            maxHeight = preferences[MAX_HEIGHT]?.takeIf { it > 0 },
+            qualityCap = preferences[QUALITY_CAP]?.let { name ->
+                runCatching { QualityCap.valueOf(name) }.getOrNull()
+            } ?: QualityCap.BEST,
             audioOnly = preferences[AUDIO_ONLY] ?: false,
             audioContainer = preferences[AUDIO_CONTAINER] ?: DEFAULT_AUDIO_CONTAINER,
             filenameTemplate = preferences[TEMPLATE] ?: FileNamer.DEFAULT_TEMPLATE,
@@ -30,13 +32,17 @@ class SettingsStore(private val context: Context) {
             theme = preferences[THEME]?.let { name ->
                 runCatching { ThemeChoice.valueOf(name) }.getOrNull()
             } ?: ThemeChoice.SYSTEM,
+            embedThumbnail = preferences[EMBED_THUMBNAIL] ?: true,
+            extraEngineArguments = preferences[EXTRA_ARGS].orEmpty(),
             engineChannel = preferences[ENGINE_CHANNEL]?.let { name ->
                 runCatching { EngineChannel.valueOf(name) }.getOrNull()
             } ?: EngineChannel.STABLE,
         )
     }
 
-    suspend fun setMaxHeight(value: Int?) = context.dataStore.edit { it[MAX_HEIGHT] = value ?: 0 }
+    suspend fun setQualityCap(cap: QualityCap) = context.dataStore.edit {
+        it[QUALITY_CAP] = cap.name
+    }
 
     suspend fun setAudioOnly(enabled: Boolean) = context.dataStore.edit { it[AUDIO_ONLY] = enabled }
 
@@ -60,13 +66,20 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setTheme(choice: ThemeChoice) = context.dataStore.edit { it[THEME] = choice.name }
 
+    suspend fun setEmbedThumbnail(enabled: Boolean) = context.dataStore.edit {
+        it[EMBED_THUMBNAIL] = enabled
+    }
+
+    suspend fun setExtraEngineArguments(arguments: String) = context.dataStore.edit {
+        it[EXTRA_ARGS] = arguments.trim()
+    }
+
     suspend fun setEngineChannel(channel: EngineChannel) = context.dataStore.edit {
         it[ENGINE_CHANNEL] = channel.name
     }
 
     data class Settings(
-        /** Null means "best available". */
-        val maxHeight: Int? = null,
+        val qualityCap: QualityCap = QualityCap.BEST,
         val audioOnly: Boolean = false,
         val audioContainer: String = DEFAULT_AUDIO_CONTAINER,
         val filenameTemplate: String = FileNamer.DEFAULT_TEMPLATE,
@@ -74,11 +87,23 @@ class SettingsStore(private val context: Context) {
         val concurrentDownloads: Int = DEFAULT_CONCURRENT,
         val prefetchFromClipboard: Boolean = true,
         val theme: ThemeChoice = ThemeChoice.SYSTEM,
+        /** Write the video's cover image into audio downloads as album art. */
+        val embedThumbnail: Boolean = true,
+        /**
+         * Extra flags handed to the extraction engine verbatim.
+         *
+         * An escape hatch, and an honest one: sites gate quality in ways no app can anticipate,
+         * and a per-site flag found in the engine's own documentation is often the only fix.
+         */
+        val extraEngineArguments: String = "",
         val engineChannel: EngineChannel = EngineChannel.STABLE,
     ) {
+        /** The height cap the resolver and the picker work with; null means no cap. */
+        val maxHeight: Int? get() = qualityCap.height
+
         fun formatPreference() = FormatPreference(
             mode = if (audioOnly) FormatPreference.Mode.AUDIO_ONLY else FormatPreference.Mode.VIDEO,
-            maxHeight = maxHeight,
+            maxHeight = qualityCap.height,
             // The chosen container goes first; the rest stay as fallbacks so a site that does
             // not offer it still yields something.
             preferredAudioContainers = listOf(audioContainer) +
@@ -94,10 +119,7 @@ class SettingsStore(private val context: Context) {
         /** Offered in settings, in the order they are preferred when the choice is unavailable. */
         val AUDIO_CONTAINERS = listOf("m4a", "opus", "mp3")
 
-        /** Heights offered as a quality cap; null is "best available". */
-        val QUALITY_STEPS: List<Int?> = listOf(null, 2160, 1440, 1080, 720, 480, 360)
-
-        private val MAX_HEIGHT = intPreferencesKey("max_height")
+        private val QUALITY_CAP = stringPreferencesKey("quality_cap")
         private val AUDIO_ONLY = booleanPreferencesKey("audio_only")
         private val AUDIO_CONTAINER = stringPreferencesKey("audio_container")
         private val TEMPLATE = stringPreferencesKey("filename_template")
@@ -105,6 +127,8 @@ class SettingsStore(private val context: Context) {
         private val CONCURRENT = intPreferencesKey("concurrent_downloads")
         private val PREFETCH = booleanPreferencesKey("prefetch_clipboard")
         private val THEME = stringPreferencesKey("theme")
+        private val EMBED_THUMBNAIL = booleanPreferencesKey("embed_thumbnail")
+        private val EXTRA_ARGS = stringPreferencesKey("extra_engine_arguments")
         private val ENGINE_CHANNEL = stringPreferencesKey("engine_channel")
     }
 }
@@ -113,3 +137,28 @@ enum class ThemeChoice { SYSTEM, LIGHT, DARK }
 
 /** Which yt-dlp release stream the in-app update pulls from. */
 enum class EngineChannel { STABLE, NIGHTLY, MASTER }
+
+/**
+ * The resolution ceiling, as a closed set rather than a nullable number.
+ *
+ * It was a `Int?` travelling through a generic chip row, where "no cap" was `null` - and a
+ * nullable type parameter is a poor thing to hang a selection comparison on. A named value has
+ * one spelling, compares by identity, and can be tested without a device.
+ */
+enum class QualityCap(val height: Int?) {
+    BEST(null),
+    P2160(2160),
+    P1440(1440),
+    P1080(1080),
+    P720(720),
+    P480(480),
+    P360(360),
+    ;
+
+    /** Label for the settings chip. */
+    val label: String get() = height?.let { "${it}p" } ?: "Best"
+
+    companion object {
+        fun forHeight(height: Int?): QualityCap = entries.firstOrNull { it.height == height } ?: BEST
+    }
+}

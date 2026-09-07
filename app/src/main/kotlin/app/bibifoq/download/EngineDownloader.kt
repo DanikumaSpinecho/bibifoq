@@ -48,6 +48,10 @@ class EngineDownloader(
         info: MediaInfo,
         selection: FormatSelection,
         destination: File,
+        /** Non-null to extract audio into this container rather than keeping the video. */
+        audioFormat: String? = null,
+        embedThumbnail: Boolean = false,
+        extraArguments: String = "",
     ): Flow<DownloadProgress> = callbackFlow {
         val clock = TimeSource.Monotonic.markNow()
         val total = selection.totalBytes
@@ -77,7 +81,10 @@ class EngineDownloader(
 
             if (savedInfo != null) {
                 val attempt = runAttempt(
-                    request = buildRequest(formatSpec, destination, container, savedInfo, null),
+                    request = buildRequest(
+                        formatSpec, destination, container, savedInfo, null,
+                        audioFormat, embedThumbnail, extraArguments,
+                    ),
                     total = total,
                 )
                 attempt.fold(onSuccess = { response = it }, onFailure = { failure = it })
@@ -90,7 +97,10 @@ class EngineDownloader(
             if (response == null) {
                 // Either there was no saved extraction to replay, or its URLs had expired.
                 val attempt = runAttempt(
-                    request = buildRequest(formatSpec, destination, container, null, info.webpageUrl),
+                    request = buildRequest(
+                        formatSpec, destination, container, null, info.webpageUrl,
+                        audioFormat, embedThumbnail, extraArguments,
+                    ),
                     total = total,
                 )
                 attempt.fold(
@@ -166,12 +176,16 @@ class EngineDownloader(
         }
     }
 
+    @Suppress("LongParameterList")
     private fun buildRequest(
         formatSpec: String,
         destination: File,
         container: String,
         savedInfo: File?,
         webpageUrl: String?,
+        audioFormat: String?,
+        embedThumbnail: Boolean,
+        extraArguments: String,
     ): YoutubeDLRequest =
         EngineCommand.build(
             formatSpec = formatSpec,
@@ -180,6 +194,9 @@ class EngineDownloader(
             savedInfo = savedInfo,
             webpageUrl = webpageUrl,
             cookiesFile = cookies?.fileOrNull(),
+            audioFormat = audioFormat,
+            embedThumbnail = embedThumbnail,
+            extraArguments = EngineCommand.splitArguments(extraArguments),
         )
 
     private fun YoutubeDLResponse?.errorLine(): String {

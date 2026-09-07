@@ -45,7 +45,9 @@ import app.bibifoq.core.model.MediaFormat
 import app.bibifoq.core.model.MediaInfo
 import app.bibifoq.core.model.Protocol
 import app.bibifoq.core.model.Provenance
+import app.bibifoq.BuildConfig
 import app.bibifoq.data.EngineChannel
+import app.bibifoq.data.QualityCap
 import app.bibifoq.data.SettingsStore
 import app.bibifoq.data.ThemeChoice
 import kotlinx.coroutines.CoroutineScope
@@ -79,12 +81,16 @@ fun SettingsScreen(
 
         Setting(stringResource(R.string.settings_max_height)) {
             ChipRow(
-                options = SettingsStore.QUALITY_STEPS,
-                selected = current.maxHeight,
-                label = { height ->
-                    height?.let { "${it}p" } ?: stringResource(R.string.settings_quality_best)
+                options = QualityCap.entries.toList(),
+                selected = current.qualityCap,
+                label = { cap ->
+                    if (cap == QualityCap.BEST) {
+                        stringResource(R.string.settings_quality_best)
+                    } else {
+                        cap.label
+                    }
                 },
-                onSelect = { height -> scope.launch { settings.setMaxHeight(height) } },
+                onSelect = { cap -> scope.launch { settings.setQualityCap(cap) } },
             )
         }
 
@@ -104,6 +110,12 @@ fun SettingsScreen(
                     onSelect = { container -> scope.launch { settings.setAudioContainer(container) } },
                 )
             }
+            SwitchSetting(
+                title = stringResource(R.string.settings_embed_thumbnail),
+                summary = stringResource(R.string.settings_embed_thumbnail_summary),
+                checked = current.embedThumbnail,
+                onChange = { enabled -> scope.launch { settings.setEmbedThumbnail(enabled) } },
+            )
         }
 
         SectionHeader(stringResource(R.string.settings_files))
@@ -201,13 +213,63 @@ fun SettingsScreen(
             Button(onClick = onUpdateEngine) { Text(stringResource(R.string.settings_update_engine)) }
         }
 
+        ExtraArgumentsSetting(current.extraEngineArguments) { arguments ->
+            scope.launch { settings.setExtraEngineArguments(arguments) }
+        }
+
         HorizontalDivider(Modifier.padding(vertical = 16.dp))
         Text(
             stringResource(R.string.settings_cache_size, cacheSize),
             style = MaterialTheme.typography.bodySmall,
         )
-        OutlinedButton(onClick = onClearCache, modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)) {
+        OutlinedButton(onClick = onClearCache, modifier = Modifier.padding(top = 4.dp)) {
             Text(stringResource(R.string.settings_clear_cache))
+        }
+
+        SectionHeader(stringResource(R.string.settings_about))
+        // Which build this is, so a bug report can name it exactly.
+        Text(
+            stringResource(
+                R.string.settings_version,
+                BuildConfig.VERSION_NAME,
+                BuildConfig.VERSION_CODE,
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            stringResource(R.string.settings_build, BuildConfig.BUILD_TIME, BuildConfig.GIT_SHA),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 24.dp),
+        )
+    }
+}
+
+/**
+ * Free-form engine flags.
+ *
+ * Sites gate quality in ways no app can anticipate, and the fix is often a single documented
+ * per-site flag. Rather than pretend to cover every case, hand the user the same lever.
+ */
+@Composable
+private fun ExtraArgumentsSetting(current: String, onCommit: (String) -> Unit) {
+    var text by remember(current) { mutableStateOf(current) }
+
+    Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            label = { Text(stringResource(R.string.settings_extra_args)) },
+            placeholder = { Text("--extractor-args \"generic:impersonate\"") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            stringResource(R.string.settings_extra_args_summary),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Button(onClick = { onCommit(text) }, enabled = text != current) {
+            Text(stringResource(R.string.save))
         }
     }
 }

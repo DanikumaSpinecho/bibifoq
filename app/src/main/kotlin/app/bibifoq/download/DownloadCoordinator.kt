@@ -120,11 +120,12 @@ class DownloadCoordinator(
             try {
                 slots.withPermit {
                     run(
-                        id,
-                        info,
-                        selection,
-                        destination,
-                        config.copy(maxConnections = preferences.maxConnections),
+                        id = id,
+                        info = info,
+                        selection = selection,
+                        destination = destination,
+                        config = config.copy(maxConnections = preferences.maxConnections),
+                        preferences = preferences,
                     )
                 }
             } finally {
@@ -187,8 +188,9 @@ class DownloadCoordinator(
         selection: FormatSelection,
         destination: File,
         config: DownloadConfig,
+        preferences: SettingsStore.Settings,
     ) {
-        val progress = strategyFor(info, selection, destination, config)
+        val progress = strategyFor(info, selection, destination, config, preferences)
         var lastTotal = selection.totalBytes
 
         progress.collect { update ->
@@ -242,12 +244,36 @@ class DownloadCoordinator(
         selection: FormatSelection,
         destination: File,
         config: DownloadConfig,
+        preferences: SettingsStore.Settings,
     ): Flow<DownloadProgress> {
         val format = selection.video ?: selection.audio!!
         val headers = info.httpHeaders + format.httpHeaders
+        val extraArguments = preferences.extraEngineArguments
+
+        // Audio with artwork has to go through the engine: writing a cover image into a
+        // container is ffmpeg's job, and the engine already owns ffmpeg. The native path is
+        // faster but would hand back an untagged file, which every music player shows as blank.
+        val audioWithArtwork = selection.video == null &&
+            preferences.audioOnly &&
+            preferences.embedThumbnail &&
+            info.thumbnailUrl != null
 
         return when {
-            selection.requiresMuxing -> engineDownloader.download(info, selection, destination)
+            audioWithArtwork -> engineDownloader.download(
+                info = info,
+                selection = selection,
+                destination = destination,
+                audioFormat = preferences.audioContainer,
+                embedThumbnail = true,
+                extraArguments = extraArguments,
+            )
+
+            selection.requiresMuxing -> engineDownloader.download(
+                info = info,
+                selection = selection,
+                destination = destination,
+                extraArguments = extraArguments,
+            )
 
             format.protocol == Protocol.HLS ->
                 HlsDownloader(httpEngine, config).download(
@@ -260,7 +286,12 @@ class DownloadCoordinator(
                 )
 
             // DASH segment templates and exotic protocols: the engine knows how, we do not.
-            else -> engineDownloader.download(info, selection, destination)
+            else -> engineDownloader.download(
+                info = info,
+                selection = selection,
+                destination = destination,
+                extraArguments = extraArguments,
+            )
         }
     }
 

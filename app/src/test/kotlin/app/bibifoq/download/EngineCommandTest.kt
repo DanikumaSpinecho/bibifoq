@@ -62,6 +62,65 @@ class EngineCommandTest {
     }
 
     @Test
+    fun `keeps a quoted flag together instead of splitting it in two`() {
+        // People paste flags straight out of documentation, quotes included.
+        assertEquals(
+            listOf("--extractor-args", "youtube:player_client=web,android"),
+            EngineCommand.splitArguments("""--extractor-args "youtube:player_client=web,android""""),
+        )
+        assertEquals(
+            listOf("--referer", "https://example.com/a b"),
+            EngineCommand.splitArguments("--referer 'https://example.com/a b'"),
+        )
+        assertEquals(listOf("--no-part", "--geo-bypass"), EngineCommand.splitArguments("  --no-part   --geo-bypass "))
+        assertEquals(emptyList(), EngineCommand.splitArguments("   "))
+    }
+
+    @Test
+    fun `extracts audio with artwork when asked`() {
+        val command = EngineCommand.build(
+            formatSpec = "140",
+            destination = File("/tmp/song.m4a"),
+            container = "m4a",
+            savedInfo = savedInfo,
+            webpageUrl = null,
+            audioFormat = "m4a",
+            embedThumbnail = true,
+        ).buildCommand()
+
+        assertContains(command, "-x")
+        assertEquals("m4a", command[command.indexOf("--audio-format") + 1])
+        // Without these the file plays fine and looks blank in every music player.
+        assertContains(command, "--embed-thumbnail")
+        assertContains(command, "--embed-metadata")
+    }
+
+    @Test
+    fun `leaves audio alone when no extraction was asked for`() {
+        val command = EngineCommand
+            .build("137+140", destination, "mp4", savedInfo, null)
+            .buildCommand()
+
+        assertTrue(command.none { it == "-x" || it == "--embed-thumbnail" })
+    }
+
+    @Test
+    fun `puts user flags last so they can override what the app chose`() {
+        val command = EngineCommand.build(
+            formatSpec = "best",
+            destination = destination,
+            container = "mp4",
+            savedInfo = savedInfo,
+            webpageUrl = null,
+            extraArguments = listOf("--extractor-args", "generic:x=1"),
+        ).buildCommand()
+
+        val flagIndex = command.indexOf("--extractor-args")
+        assertTrue(flagIndex > command.indexOf("-f"), "user flags must come after the app's own")
+        assertEquals("generic:x=1", command[flagIndex + 1])
+    }
+
+    @Test
     fun `refuses to build a command with neither an input nor a URL`() {
         assertFailsWith<IllegalArgumentException> {
             EngineCommand.build("137", destination, "mp4", savedInfo = null, webpageUrl = null)

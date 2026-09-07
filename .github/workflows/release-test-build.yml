@@ -37,7 +37,12 @@ jobs:
       # device yet, and a first field test should not also be the first run of R8
       # output.
       - name: Assemble debug APKs
-        run: ./gradlew :app:assembleDebug
+        # Stamped into the app so a bug report can name the exact build it came from.
+        env:
+          BUILD_TIME: ${{ github.event.repository.updated_at }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          BUILD_TIME="$(date -u +%Y-%m-%d\ %H:%M\ UTC)" ./gradlew :app:assembleDebug
 
       - name: Name the release
         id: name

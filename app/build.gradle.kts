@@ -1,3 +1,12 @@
+import java.time.LocalDate
+
+/** CI passes the real values; a local build gets something honest rather than nothing. */
+val buildTimestamp: String =
+    providers.environmentVariable("BUILD_TIME").orNull ?: LocalDate.now().toString()
+
+val gitSha: String =
+    providers.environmentVariable("GITHUB_SHA").orNull?.take(7) ?: "local"
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -20,6 +29,11 @@ android {
         versionName = "0.1.0"
 
         ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
+        // Stamped into the app so a bug report can name the exact build it came from. CI
+        // supplies both; a local build falls back to today's date and "local".
+        buildConfigField("String", "BUILD_TIME", "\"${buildTimestamp}\"")
+        buildConfigField("String", "GIT_SHA", "\"${gitSha}\"")
     }
 
     buildTypes {

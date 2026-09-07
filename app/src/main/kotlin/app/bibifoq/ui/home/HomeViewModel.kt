@@ -7,7 +7,9 @@ import app.bibifoq.core.model.FormatSelection
 import app.bibifoq.core.model.MediaFormat
 import app.bibifoq.core.model.MediaInfo
 import app.bibifoq.core.model.Provenance
+import app.bibifoq.core.resolver.RemoteEngineOptions
 import app.bibifoq.core.resolver.ResolveMode
+import app.bibifoq.download.EngineCommand
 import app.bibifoq.data.SettingsStore
 import app.bibifoq.core.resolver.ResolveUpdate
 import kotlin.time.Duration
@@ -92,8 +94,14 @@ class HomeViewModel(private val services: ServiceLocator) : ViewModel() {
             // Someone who capped quality at 480p is satisfied by a 480p stream; someone who did
             // not is not satisfied by a 360p fallback. Same knob, both directions.
             val preferences = services.settings.settings.first()
-            services.resolver.resolve(url, mode = mode, desiredHeight = preferences.maxHeight)
-                .collect { update ->
+            services.resolver.resolve(
+                rawUrl = url,
+                options = RemoteEngineOptions(
+                    extraArguments = EngineCommand.splitArguments(preferences.extraEngineArguments),
+                ),
+                mode = mode,
+                desiredHeight = preferences.maxHeight,
+            ).collect { update ->
                 when (update) {
                     is ResolveUpdate.Started -> Unit
 
